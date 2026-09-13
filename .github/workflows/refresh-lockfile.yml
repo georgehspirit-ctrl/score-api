@@ -1,0 +1,29 @@
+name: Refresh lockfile
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # Regenerated here, never on a machine that holds wallets.
+      - run: yarn install --ignore-scripts
+      - name: Commit if changed
+        run: |
+          if [ -n "$(git status --porcelain yarn.lock)" ]; then
+            git config user.name "georgehspirit-ctrl"
+            git config user.email "georgehspirit@gmail.com"
+            git add yarn.lock
+            git commit -m "chore: refresh lockfile for the snapshot.js bump"
+            git push
+          else
+            echo "lockfile already current"
+          fi
