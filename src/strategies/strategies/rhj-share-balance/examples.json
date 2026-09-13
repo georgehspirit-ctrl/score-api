@@ -1,0 +1,50 @@
+[
+  {
+    "name": "CRWD on Robinhood Chain (4:1 split, uiMultiplier = 4.0)",
+    "strategy": {
+      "name": "rhj-share-balance",
+      "params": {
+        "address": "0xea72Ecca2d0f6bFA1394DBBCff85b52CD4233931",
+        "symbol": "CRWD",
+        "decimals": 18
+      }
+    },
+    "network": "4663",
+    "addresses": [
+      "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+      "0xfac1d7dC76bE90C5Cadd5B022af7838dd8190F16",
+      "0x33eAbd63853e74FF70d8b89982dfB5BC3eb0A189",
+      "0x92d435C96E63c43E12d6D0AB28f6b0B04072F765",
+      "0xDaBA3855D8B8f34132De9F868fC453d4bB3Cd466",
+      "0x009CAf46839B988325ca0314E09a2d1cF2F317E6",
+      "0xBCD08939643f276be543D9741A176d3E6c17efC7",
+      "0xe9519A537978e12285B2FAE04F061109a616c36A",
+      "0x457811A65cE6BE05E1235eB4E94d6005483FC7f8",
+      "0xF6928315D0ceE76Ac3905B4D459e4E73D656c340"
+    ],
+    "snapshot": 62000000
+  },
+  {
+    "name": "NVDA on Robinhood Chain (non-round uiMultiplier = 1.000775159164630595)",
+    "strategy": {
+      "name": "rhj-share-balance",
+      "params": {
+        "address": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+        "symbol": "NVDA",
+        "decimals": 18
+      }
+    },
+    "network": "4663",
+    "addresses": [
+      "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+      "0x9D53d5E3bd5E8d4Cbfa6DB1ca238AEA02E651010",
+      "0xd4EB21209C4D6093f80B5b84f5C45cc093EA14a3",
+      "0xE5e702641Ea86F4ae6cC3cDaeD2B886f976Be044",
+      "0x62AB521f71431f78ac374CdbadC6cda3c8916b6C",
+      "0xd3AFEB2a57f70eF218Aa82451c51B2fb0416Ac9e",
+      "0x65050A9b7E5075A2bA5cED7b1b64EE66262c40Dc",
+      "0x6aa80DbBed9ae5aB45FbF61f9644faDA3b29326E"
+    ],
+    "snapshot": 62000000
+  }
+]
