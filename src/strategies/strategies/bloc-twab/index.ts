@@ -46,17 +46,24 @@ const TRANSFER =
 /**
  * Blocks per `eth_getLogs`, and how many of those run at once.
  *
- * Measured against the brovider: the cap is exactly 10,000 blocks and it is an
- * ERROR, not a truncation — "block range exceeds maximum allowed (max=10000)" — so
- * a silently short answer is not a failure mode here. CHUNK starts at the ceiling
- * and halves on a range complaint, so a stricter node degrades instead of breaking.
+ * Measured. The brovider caps at exactly 10,000 blocks and ERRORS, so nothing is
+ * lost silently there. The Tenderly gateway is the opposite and far more dangerous:
+ * it answers a 3.5M-block range with 14 logs where its own 1M-block SUBSET of that
+ * range returns 12,203 — deterministically, with no error. A superset returning less
+ * than its subset is silent data loss, and a weight built on it would look perfectly
+ * plausible. So the chunk is held at a width that was checked for additivity rather
+ * than at whatever a node will accept: five 200,000-block chunks returned exactly the
+ * same 12,206 logs as one 1,000,000-block call, key for key, in both directions.
+ *
+ * CHUNK never grows past that validated width, and halves on a range complaint so a
+ * stricter node degrades instead of breaking.
  *
  * Concurrency is the part that matters. Robinhood Chain produces roughly ten blocks
  * a second, so a four-day ballot spans about 3.4 million blocks — 346 chunks, two
  * filters each. Sequentially that is some six hundred round trips and the request
  * dies long before it finishes; the ballot would simply fail to tally at close.
  */
-let LOG_CHUNK = 10000;
+let LOG_CHUNK = 200000;
 const LOG_CONCURRENCY = 16;
 
 /** Bounded fan-out. Keeps the scan inside one request without flooding the node. */
