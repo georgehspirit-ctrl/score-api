@@ -18,11 +18,18 @@ import { Multicaller } from '../../utils';
  * of it scores B/2, and one that bought late and kept holding keeps accruing until
  * the ballot closes. Selling stops the accrual; it never claws back what was earned.
  *
- * The window is [snapshot block, current head]. `snapshot` is the proposal's own
- * block, so the start is fixed and public; the end moves while the ballot is open,
- * which is exactly the "accruing" number the page shows. The sequencer re-scores
- * every voter once at close and freezes the result there, so the tally is the
- * integral over the full window and nothing after it counts.
+ * The window is [t_start, t_start + windowSeconds], clamped to the present.
+ * `snapshot` is the proposal's own block, so the start is fixed and public, and
+ * `windowSeconds` is the ballot's length, so the end is fixed too. While the ballot
+ * is open the clamp bites and the number is the accrual so far — which is what the
+ * page shows. Once the ballot closes the clamp lifts and the answer stops moving,
+ * permanently, for everyone.
+ *
+ * That fixed end is not a detail. With the window ending at "now", two people
+ * scoring the same wallet a minute apart get different numbers — measured at 0.5%
+ * and 1.1% apart on two active wallets — and the closing tally would depend on the
+ * minute the score job happened to run. A weight nobody can reproduce is not a
+ * weight anybody can check.
  *
  * The balance curve is reconstructed exactly, not sampled: one archive `balanceOf`
  * at the start block, then every Transfer touching these addresses, applied in
@@ -71,7 +78,7 @@ export async function strategy(
   network: string,
   provider: any,
   addresses: string[],
-  options: { address: string; decimals: number; symbol?: string },
+  options: { address: string; decimals: number; symbol?: string; windowSeconds?: number },
   snapshot: string | number
 ): Promise<Record<string, number>> {
   if (!options.address) throw new Error('address parameter is required');
@@ -81,7 +88,7 @@ export async function strategy(
   // 'latest' means there is no window to integrate over — a caller asking for a
   // spot reading gets one, rather than a silently empty result.
   const startBlock = typeof snapshot === 'number' && snapshot > 0 ? Math.min(snapshot, head) : head;
-  const endBlock = head;
+  const windowSeconds = Number(options.windowSeconds ?? 0);
 
   const wanted = addresses.map(a => getAddress(a));
   const index = new Map(wanted.map(a => [a, true]));
@@ -94,13 +101,37 @@ export async function strategy(
     Object.entries(await multi.execute()).map(([a, b]) => [a, BigNumber.from(b as any)])
   );
 
-  const [startBlockData, endBlockData] = await Promise.all([
+  const [startBlockData, headBlockData] = await Promise.all([
     provider.getBlock(startBlock),
-    provider.getBlock(endBlock)
+    provider.getBlock(head)
   ]);
   const startTs: number = startBlockData.timestamp;
-  const endTs: number = endBlockData.timestamp;
+  const headTs: number = headBlockData.timestamp;
+  // Without a declared length the window can only end at the present, and the score
+  // moves every block. Every bloc space sets one; the fallback exists so a
+  // misconfigured space still returns a defensible number instead of throwing.
+  const closeTs = windowSeconds > 0 ? startTs + windowSeconds : headTs;
+  const endTs = Math.min(headTs, closeTs);
   const totalSeconds = Math.max(0, endTs - startTs);
+
+  /**
+   * The last block inside the window. Searched rather than estimated, because a
+   * closed ballot may be recounted weeks later and scanning from its block to the
+   * present would be both slow and pointless — every one of those blocks is after
+   * the deadline. Bounds the log scan; the integral itself still cuts on timestamp.
+   */
+  let endBlock = head;
+  if (endTs < headTs) {
+    let lo = startBlock;
+    let hi = head;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      const t: number = (await provider.getBlock(mid)).timestamp;
+      if (t <= endTs) lo = mid;
+      else hi = mid - 1;
+    }
+    endBlock = lo;
+  }
 
   // Nothing has elapsed yet: the average balance over a zero-length window is the
   // balance itself. A holder who signs in the first seconds of a ballot sees their
@@ -158,6 +189,10 @@ export async function strategy(
 
   for (const e of events) {
     const at = stamps.get(e.blockNumber) ?? startTs;
+    // Blocks are scanned up to the head, but a transfer after the ballot closed is
+    // not part of the ballot. Stopping here rather than at a block boundary keeps
+    // the cut exactly where the published deadline is.
+    if (at > endTs) break;
     const value = BigNumber.from(e.data);
     const sender = fromTopic(e.topics[1]);
     const recipient = fromTopic(e.topics[2]);

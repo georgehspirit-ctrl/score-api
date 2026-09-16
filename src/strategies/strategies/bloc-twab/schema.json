@@ -9,14 +9,18 @@
         "symbol": {
           "type": "string",
           "title": "Symbol",
-          "examples": ["e.g. MEME"],
+          "examples": [
+            "e.g. MEME"
+          ],
           "maxLength": 16
         },
         "address": {
           "type": "string",
           "title": "Token contract address",
           "description": "The community token whose holding is being weighed. Any standard ERC-20; unlike a share token it is not required to expose uiMultiplier().",
-          "examples": ["e.g. 0x385f4f8ae47651ce5f58f5265395a669f8281e18"],
+          "examples": [
+            "e.g. 0x385f4f8ae47651ce5f58f5265395a669f8281e18"
+          ],
           "pattern": "^0x[a-fA-F0-9]{40}$",
           "minLength": 42,
           "maxLength": 42
@@ -25,11 +29,26 @@
           "type": "number",
           "title": "Decimals",
           "description": "Token decimals. Controls formatting only; the integration itself is done in wei.",
-          "examples": ["e.g. 18"],
+          "examples": [
+            "e.g. 18"
+          ],
+          "minimum": 0
+        },
+        "windowSeconds": {
+          "type": "number",
+          "title": "Window length (seconds)",
+          "description": "How long each ballot in this space stays open. The weighing window is [proposal block, proposal block + this], so a closed ballot's weights never move again. Publish ballots with end = start + this value.",
+          "examples": [
+            "e.g. 345600 for four days"
+          ],
           "minimum": 0
         }
       },
-      "required": ["address", "decimals"],
+      "required": [
+        "address",
+        "decimals",
+        "windowSeconds"
+      ],
       "additionalProperties": false
     }
   }
