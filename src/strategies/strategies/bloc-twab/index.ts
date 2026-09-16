@@ -44,12 +44,36 @@ const TRANSFER =
   '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 
 /**
- * Blocks per `eth_getLogs`. RHC's public RPC rejects an over-wide range outright
- * rather than truncating, so the scan is chunked; the value is deliberately well
- * under the measured ceiling, because the failure mode of guessing too high is a
- * strategy that throws on the busiest ballots only.
+ * Blocks per `eth_getLogs`, and how many of those run at once.
+ *
+ * Measured against the brovider: the cap is exactly 10,000 blocks and it is an
+ * ERROR, not a truncation — "block range exceeds maximum allowed (max=10000)" — so
+ * a silently short answer is not a failure mode here. CHUNK starts at the ceiling
+ * and halves on a range complaint, so a stricter node degrades instead of breaking.
+ *
+ * Concurrency is the part that matters. Robinhood Chain produces roughly ten blocks
+ * a second, so a four-day ballot spans about 3.4 million blocks — 346 chunks, two
+ * filters each. Sequentially that is some six hundred round trips and the request
+ * dies long before it finishes; the ballot would simply fail to tally at close.
  */
-const LOG_CHUNK = 5000;
+let LOG_CHUNK = 10000;
+const LOG_CONCURRENCY = 16;
+
+/** Bounded fan-out. Keeps the scan inside one request without flooding the node. */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, async () => {
+      for (;;) {
+        const i = next++;
+        if (i >= items.length) return;
+        out[i] = await fn(items[i]);
+      }
+    })
+  );
+  return out;
+}
 
 const topicAddress = (a: string) => '0x' + a.toLowerCase().slice(2).padStart(64, '0');
 const fromTopic = (t: string) => getAddress('0x' + t.slice(-40));
@@ -65,7 +89,10 @@ export type Segment = { balance: BigNumber; seconds: number };
  * window. Only the final division loses anything, and it loses less than one wei.
  */
 export function integrate(segments: Segment[], totalSeconds: number): BigNumber {
-  if (totalSeconds <= 0) return segments.length ? segments[0].balance : BigNumber.from(0);
+  // A zero-length window has no average to take. The caller handles that case with
+  // the opening balance; returning an arbitrary segment from here would be a number
+  // with no meaning attached to it.
+  if (totalSeconds <= 0) return BigNumber.from(0);
   let acc = BigNumber.from(0);
   for (const s of segments) {
     if (s.seconds > 0) acc = acc.add(s.balance.mul(s.seconds));
@@ -146,15 +173,41 @@ export async function strategy(
   // topic is what keeps this cheap on a token with a large holder set: a ballot
   // with ten voters reads ten wallets' history, not the whole chain's.
   const topics = wanted.map(topicAddress);
-  const logs: any[] = [];
+
+  const getLogs = async (fromBlock: number, toBlock: number, incoming: boolean): Promise<any[]> => {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        return await provider.getLogs({
+          address: options.address,
+          fromBlock,
+          toBlock,
+          topics: incoming ? [TRANSFER, null, topics] : [TRANSFER, topics]
+        });
+      } catch (e: any) {
+        // A range complaint is the one error worth adapting to. Anything else —
+        // a dead node, a bad filter — must surface, because a scan that quietly
+        // returns nothing produces a weight that looks plausible and is wrong.
+        if (!/range|too large|max=/i.test(String(e?.message ?? e))) throw e;
+        LOG_CHUNK = Math.max(500, Math.floor(LOG_CHUNK / 2));
+        const mid = Math.floor((fromBlock + toBlock) / 2);
+        if (mid <= fromBlock) throw e;
+        const [a, b] = await Promise.all([getLogs(fromBlock, mid, incoming), getLogs(mid + 1, toBlock, incoming)]);
+        return [...a, ...b];
+      }
+    }
+    throw new Error(`eth_getLogs failed for ${fromBlock}-${toBlock}`);
+  };
+
+  const spans: Array<[number, number, boolean]> = [];
   for (let from = startBlock + 1; from <= endBlock; from += LOG_CHUNK) {
     const to = Math.min(from + LOG_CHUNK - 1, endBlock);
-    const [out, inc] = await Promise.all([
-      provider.getLogs({ address: options.address, fromBlock: from, toBlock: to, topics: [TRANSFER, topics] }),
-      provider.getLogs({ address: options.address, fromBlock: from, toBlock: to, topics: [TRANSFER, null, topics] })
-    ]);
-    logs.push(...out, ...inc);
+    spans.push([from, to, false], [from, to, true]);
   }
+  const pages = await mapLimit(spans, LOG_CONCURRENCY, ([from, to, inc]) => getLogs(from, to, inc));
+  // Spread would blow the argument limit at ~65k entries, which a busy token over a
+  // multi-day window reaches easily.
+  const logs: any[] = [];
+  for (const page of pages) for (const row of page) logs.push(row);
 
   // A self-transfer matches both filters and would otherwise be applied twice.
   const seen = new Set<string>();
@@ -188,6 +241,14 @@ export async function strategy(
   };
 
   for (const e of events) {
+    /**
+     * `Transfer(address,address,uint256)` is the same topic0 for ERC-20 and ERC-721,
+     * and the NFT form puts the id in a fourth topic with empty data. A token that
+     * emits both — ERC-404 and its imitators, a live genre among meme tokens — would
+     * otherwise reach BigNumber.from("0x") and throw, and nobody in that space could
+     * vote at all. An id is not a balance, so those are skipped.
+     */
+    if (e.topics.length > 3 || !e.data || e.data === '0x') continue;
     const at = stamps.get(e.blockNumber) ?? startTs;
     // Blocks are scanned up to the head, but a transfer after the ballot closed is
     // not part of the ballot. Stopping here rather than at a block boundary keeps
@@ -198,9 +259,20 @@ export async function strategy(
     const recipient = fromTopic(e.topics[2]);
     if (index.has(sender)) {
       advance(sender, at);
-      // A balance can only go negative if a log was missed. Clamping hides that,
-      // so it is left to underflow loudly rather than quietly scoring nonsense.
-      balance.set(sender, (balance.get(sender) as BigNumber).sub(value));
+      const after = (balance.get(sender) as BigNumber).sub(value);
+      /**
+       * A balance can only go negative if the reconstruction missed a credit. Ethers
+       * carries negatives happily and the pipeline then drops any vp <= 0, so the
+       * holder is silently scored zero and told they have no voting power — a wrong
+       * number wearing the costume of a correct one. Refusing is the honest failure.
+       */
+      if (after.isNegative()) {
+        throw new Error(
+          `bloc-twab: ${sender} went negative at block ${e.blockNumber} on ${options.address}; ` +
+            `a balance-changing event was not seen, so no weight can be computed for this window`
+        );
+      }
+      balance.set(sender, after);
     }
     if (index.has(recipient)) {
       advance(recipient, at);

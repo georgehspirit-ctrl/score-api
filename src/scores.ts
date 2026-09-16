@@ -2,17 +2,22 @@ import { get, set } from './aws';
 import { getProvider } from './helpers/provider';
 import serve from './requestDeduplicator';
 import snapshot from './strategies';
-import { getCurrentBlockNum, isLiveWeightSpace, sha256 } from './utils';
+import { getCurrentBlockNum, isAccruing, sha256 } from './utils';
 
 async function calculateScores(parent, args, key) {
   const withCache = !!process.env.AWS_REGION;
   const { space = '', strategies, network, addresses } = args;
   let snapshotBlockNum: number | 'latest' = 'latest';
 
-  if (args.snapshot !== 'latest') {
+  // Same reasoning as getVp: an accruing window must keep its declared start block,
+  // or a stale head silently turns it into a spot reading.
+  const accruingHere = isAccruing(strategies, space);
+  if (args.snapshot !== 'latest' && !accruingHere) {
     const currentBlockNum = await getCurrentBlockNum(args.snapshot, network);
     snapshotBlockNum =
       currentBlockNum < args.snapshot ? 'latest' : parseInt(args.snapshot);
+  } else if (args.snapshot !== 'latest') {
+    snapshotBlockNum = parseInt(args.snapshot);
   }
 
   /**
@@ -20,7 +25,7 @@ async function calculateScores(parent, args, key) {
    * through, but the total it produces is still moving and must never be cached or
    * called final. See the note in methods.ts.
    */
-  const accruing = isLiveWeightSpace(space);
+  const accruing = accruingHere;
   const state = snapshotBlockNum === 'latest' || accruing ? 'pending' : 'final';
 
   let scores;

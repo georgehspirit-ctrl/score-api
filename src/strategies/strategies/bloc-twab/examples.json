@@ -6,7 +6,8 @@
       "params": {
         "address": "0x385f4f8ae47651ce5f58f5265395a669f8281e18",
         "symbol": "MEME",
-        "decimals": 18
+        "decimals": 18,
+        "windowSeconds": 345600
       }
     },
     "network": "4663",

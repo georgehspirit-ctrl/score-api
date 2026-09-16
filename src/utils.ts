@@ -110,24 +110,39 @@ export function isAddressValid(address: string, allowEmpty = false): boolean {
 }
 
 /**
- * Spaces whose weight is read at the current block instead of the proposal's.
+ * A weight that is still accruing, and therefore must never be cached or called final.
  *
- * A share space must stay frozen: a share count is an instruction to a transfer
- * agent, and freezing it is what stops the same shares from being voted twice out
- * of two wallets. A community bloc is a different object. Its weight is a meme
- * token, the question is which way the bloc leans, and a token bought on Tuesday
- * is as real a holding as one bought on Monday. Freezing the block there would
- * silence everyone who arrived after the question was asked, which is the exact
- * lockout the product exists to undo.
+ * Decided by the STRATEGY, not by configuration. It used to be decided by a Railway
+ * environment variable listing the bloc spaces, and that was a trapdoor: the whole
+ * anti-double-count property depends on every voter being re-scored over one common
+ * window when the ballot closes, that re-score happens only when vp_state is
+ * 'pending', and that in turn happened only if the space appeared in the string. Add
+ * a ninth community and forget the variable and the tally silently becomes the sum of
+ * each voter's weight at the second they signed — which one holder can inflate to
+ * about nine times their balance by passing the same coins through a chain of wallets
+ * and voting from each. Nothing anywhere cross-checked the list against the spaces.
  *
- * Read here rather than baked in, so adding a community is a config change and
- * never a code deploy. Both the site and the sequencer score through this API, so
- * one rule governs what is displayed and what is accepted.
+ * `bloc-twab` integrates over a window, so a bloc-twab score is accruing by
+ * construction. The fact and the flag are now the same fact.
+ *
+ * The variable is still honoured, as an escape hatch for a space that needs the
+ * behaviour without the strategy. It can no longer be the only thing holding the
+ * property up.
  */
+const ACCRUING_STRATEGIES = ['bloc-twab'];
+
 const liveWeightSpaces = (process.env.LIVE_WEIGHT_SPACES || '')
   .split(',')
   .map(s => s.trim().toLowerCase())
   .filter(Boolean);
 
+export const isAccruing = (
+  strategies?: Array<{ name?: string }>,
+  space?: string
+): boolean =>
+  (strategies ?? []).some(s => ACCRUING_STRATEGIES.includes(String(s?.name))) ||
+  (!!space && liveWeightSpaces.includes(space.toLowerCase()));
+
+/** @deprecated Kept for the escape-hatch path; prefer isAccruing(strategies, space). */
 export const isLiveWeightSpace = (space?: string): boolean =>
   !!space && liveWeightSpaces.includes(space.toLowerCase());

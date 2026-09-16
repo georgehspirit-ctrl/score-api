@@ -6,7 +6,7 @@ import {
   checkInvalidStrategies,
   getCurrentBlockNum,
   isAddressValid,
-  isLiveWeightSpace,
+  isAccruing,
   sha256
 } from './utils';
 
@@ -68,9 +68,16 @@ export async function getVp(params: GetVpRequestParams): Promise<{
    * 'final' verdict cached on the first read would freeze a holder's weight at what
    * they had when they first looked.
    */
-  const accruing = isLiveWeightSpace(params.space);
+  const accruing = isAccruing(params.strategies, params.space);
 
-  if (params.snapshot !== 'latest') {
+  /**
+   * The head this reads can be up to two minutes stale, and a ballot is votable the
+   * moment it is published. For an ordinary space rewriting a not-yet-reached block
+   * to 'latest' is a kindness; for an accruing one it is a hole — the window collapses
+   * to a point, the strategy hands back a spot balance, and for the next two minutes
+   * anyone can buy one block before signing and take full weight.
+   */
+  if (params.snapshot !== 'latest' && !accruing) {
     const currentBlockNum = await getCurrentBlockNum(
       params.snapshot,
       params.network
