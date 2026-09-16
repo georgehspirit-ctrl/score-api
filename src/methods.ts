@@ -6,6 +6,7 @@ import {
   checkInvalidStrategies,
   getCurrentBlockNum,
   isAddressValid,
+  isLiveWeightSpace,
   sha256
 } from './utils';
 
@@ -56,6 +57,7 @@ export async function getVp(params: GetVpRequestParams): Promise<{
   cache: boolean;
 }> {
   if (typeof params.snapshot !== 'number') params.snapshot = 'latest';
+  if (isLiveWeightSpace(params.space)) params.snapshot = 'latest';
 
   if (params.snapshot !== 'latest') {
     const currentBlockNum = await getCurrentBlockNum(

@@ -2,14 +2,16 @@ import { get, set } from './aws';
 import { getProvider } from './helpers/provider';
 import serve from './requestDeduplicator';
 import snapshot from './strategies';
-import { getCurrentBlockNum, sha256 } from './utils';
+import { getCurrentBlockNum, isLiveWeightSpace, sha256 } from './utils';
 
 async function calculateScores(parent, args, key) {
   const withCache = !!process.env.AWS_REGION;
   const { space = '', strategies, network, addresses } = args;
   let snapshotBlockNum: number | 'latest' = 'latest';
 
-  if (args.snapshot !== 'latest') {
+  // Same rule as getVp: a community bloc is scored on what its holders hold now,
+  // so the totals on the page agree with the weight the sequencer accepted.
+  if (args.snapshot !== 'latest' && !isLiveWeightSpace(space)) {
     const currentBlockNum = await getCurrentBlockNum(args.snapshot, network);
     snapshotBlockNum =
       currentBlockNum < args.snapshot ? 'latest' : parseInt(args.snapshot);

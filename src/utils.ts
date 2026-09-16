@@ -108,3 +108,26 @@ export function isAddressValid(address: string, allowEmpty = false): boolean {
     return false;
   }
 }
+
+/**
+ * Spaces whose weight is read at the current block instead of the proposal's.
+ *
+ * A share space must stay frozen: a share count is an instruction to a transfer
+ * agent, and freezing it is what stops the same shares from being voted twice out
+ * of two wallets. A community bloc is a different object. Its weight is a meme
+ * token, the question is which way the bloc leans, and a token bought on Tuesday
+ * is as real a holding as one bought on Monday. Freezing the block there would
+ * silence everyone who arrived after the question was asked, which is the exact
+ * lockout the product exists to undo.
+ *
+ * Read here rather than baked in, so adding a community is a config change and
+ * never a code deploy. Both the site and the sequencer score through this API, so
+ * one rule governs what is displayed and what is accepted.
+ */
+const liveWeightSpaces = (process.env.LIVE_WEIGHT_SPACES || '')
+  .split(',')
+  .map(s => s.trim().toLowerCase())
+  .filter(Boolean);
+
+export const isLiveWeightSpace = (space?: string): boolean =>
+  !!space && liveWeightSpaces.includes(space.toLowerCase());
