@@ -57,7 +57,18 @@ export async function getVp(params: GetVpRequestParams): Promise<{
   cache: boolean;
 }> {
   if (typeof params.snapshot !== 'number') params.snapshot = 'latest';
-  if (isLiveWeightSpace(params.space)) params.snapshot = 'latest';
+
+  /**
+   * A bloc keeps its block, but never its answer.
+   *
+   * `bloc-twab` integrates a holder's balance from the proposal's own block to the
+   * present, so the block must reach the strategy intact — rewriting it to 'latest'
+   * would collapse the window to a point and hand back a spot balance. What must not
+   * survive is the cache: the number moves every minute the ballot is open, and a
+   * 'final' verdict cached on the first read would freeze a holder's weight at what
+   * they had when they first looked.
+   */
+  const accruing = isLiveWeightSpace(params.space);
 
   if (params.snapshot !== 'latest') {
     const currentBlockNum = await getCurrentBlockNum(
@@ -71,6 +82,7 @@ export async function getVp(params: GetVpRequestParams): Promise<{
   const key = sha256(JSON.stringify(params));
   const useCache =
     redis &&
+    !accruing &&
     params.snapshot !== 'latest' &&
     !disableCachingForSpaces.includes(params.space);
   if (useCache) {
@@ -95,6 +107,15 @@ export async function getVp(params: GetVpRequestParams): Promise<{
     params.space,
     params.delegation
   );
+
+  /**
+   * 'pending' is what makes the closing tally the real one. The sequencer's score
+   * job re-scores a proposal at close only when some vote's vp_state is not yet
+   * final (snapshot-sequencer/src/scores.ts); call an accruing weight 'final' and
+   * the tally freezes at whatever each voter had at the second they signed, which
+   * is the one number this mechanism exists to stop counting.
+   */
+  if (accruing) result.vp_state = 'pending';
 
   if (useCache && result.vp_state === 'final') {
     const multi = redis.multi();

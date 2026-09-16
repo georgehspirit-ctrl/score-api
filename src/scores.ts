@@ -9,15 +9,19 @@ async function calculateScores(parent, args, key) {
   const { space = '', strategies, network, addresses } = args;
   let snapshotBlockNum: number | 'latest' = 'latest';
 
-  // Same rule as getVp: a community bloc is scored on what its holders hold now,
-  // so the totals on the page agree with the weight the sequencer accepted.
-  if (args.snapshot !== 'latest' && !isLiveWeightSpace(space)) {
+  if (args.snapshot !== 'latest') {
     const currentBlockNum = await getCurrentBlockNum(args.snapshot, network);
     snapshotBlockNum =
       currentBlockNum < args.snapshot ? 'latest' : parseInt(args.snapshot);
   }
 
-  const state = snapshotBlockNum === 'latest' ? 'pending' : 'final';
+  /**
+   * Same rule as getVp: a bloc's block is the start of its window, so it is passed
+   * through, but the total it produces is still moving and must never be cached or
+   * called final. See the note in methods.ts.
+   */
+  const accruing = isLiveWeightSpace(space);
+  const state = snapshotBlockNum === 'latest' || accruing ? 'pending' : 'final';
 
   let scores;
 

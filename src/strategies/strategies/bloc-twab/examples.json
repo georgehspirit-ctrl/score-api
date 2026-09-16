@@ -1,0 +1,21 @@
+[
+  {
+    "name": "MEME on Robinhood Chain, weighed across a ballot window",
+    "strategy": {
+      "name": "bloc-twab",
+      "params": {
+        "address": "0x385f4f8ae47651ce5f58f5265395a669f8281e18",
+        "symbol": "MEME",
+        "decimals": 18
+      }
+    },
+    "network": "4663",
+    "addresses": [
+      "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+      "0xe2c12a7379706a291cadaaec1d22458be2f7239d",
+      "0x73d8bd54f7cf5fab43fe4ef40a62d390644946db",
+      "0xfa368a170aef922b5b8325c19e6a337727a740ed"
+    ],
+    "snapshot": 64718502
+  }
+]
