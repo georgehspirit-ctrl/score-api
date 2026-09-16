@@ -191,10 +191,27 @@ export async function strategy(
           topics: incoming ? [TRANSFER, null, topics] : [TRANSFER, topics]
         });
       } catch (e: any) {
-        // A range complaint is the one error worth adapting to. Anything else —
-        // a dead node, a bad filter — must surface, because a scan that quietly
-        // returns nothing produces a weight that looks plausible and is wrong.
-        if (!/range|too large|max=/i.test(String(e?.message ?? e))) throw e;
+        /**
+         * Three ways a node says "that span was too much", and all three must split
+         * rather than fail. Measured on Robinhood Chain:
+         *
+         *   "block range exceeds maximum allowed (max=10000)"  — the brovider's cap
+         *   "logs matched by query exceeds limit of 10000"     — a RESULT cap, so the
+         *                                                        ceiling moves with how
+         *                                                        busy the token is
+         *   "log query timed out"                              — the dangerous one: a
+         *                                                        scan that treats it as
+         *                                                        fatal and skips the
+         *                                                        chunk silently
+         *                                                        undercounts, measured
+         *                                                        at 25% on a 5-day span
+         *
+         * Anything else — a dead node, a bad filter — still surfaces. A scan that
+         * quietly returns less than the truth produces a weight that looks entirely
+         * plausible and is wrong, which is the failure mode worth fearing here.
+         */
+        const msg = String(e?.message ?? e);
+        if (!/range|too large|max=|exceeds limit|timed out|timeout/i.test(msg)) throw e;
         LOG_CHUNK = Math.max(500, Math.floor(LOG_CHUNK / 2));
         const mid = Math.floor((fromBlock + toBlock) / 2);
         if (mid <= fromBlock) throw e;
