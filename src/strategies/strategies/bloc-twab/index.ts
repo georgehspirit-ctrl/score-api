@@ -38,10 +38,35 @@ import { Multicaller } from '../../utils';
  */
 
 const abi = ['function balanceOf(address account) external view returns (uint256)'];
+const morphoAbi = [
+  'function position(bytes32 id, address user) external view returns (uint256 supplyShares, uint128 borrowShares, uint128 collateral)'
+];
 
 /** keccak256("Transfer(address,address,uint256)") */
 const TRANSFER =
   '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
+/**
+ * Morpho Blue's three ways a holder's collateral can move.
+ *
+ * A community token posted as collateral leaves the wallet, so without these the
+ * holder's curve drops to zero the moment they borrow against it and they lose the
+ * bloc weight they have been accruing. All three are needed, and the third is the one
+ * that bites: a LIQUIDATION removes collateral WITHOUT a WithdrawCollateral, so a
+ * wallet liquidated mid-window would otherwise keep accruing weight on a position it
+ * no longer has, right through to the close. Three liquidations happened in the last
+ * six million blocks, and PONS sits at 81,687 across four wallets — concentrated
+ * enough that one of them would visibly move a bloc score.
+ *
+ * `onBehalf` (Supply/Withdraw) and `borrower` (Liquidate) are all topic 3, so the
+ * node filters by holder for us.
+ */
+const SUPPLY_COLLATERAL =
+  '0xa3b9472a1399e17e123f3c2e6586c23e504184d504de59cdaa2b375e880c6184';
+const WITHDRAW_COLLATERAL =
+  '0xe80ebd7cc9223d7382aab2e0d1d6155c65651f83d53c8b9b06901d167e321142';
+const LIQUIDATE =
+  '0xa4946ede45d0c6f06a0f5ce92c9ad3b4751452d2fe0e25010783bcab57a67e41';
 
 /**
  * Blocks per `eth_getLogs`, and how many of those run at once.
@@ -112,7 +137,16 @@ export async function strategy(
   network: string,
   provider: any,
   addresses: string[],
-  options: { address: string; decimals: number; symbol?: string; windowSeconds?: number },
+  options: {
+    address: string;
+    decimals: number;
+    symbol?: string;
+    windowSeconds?: number;
+    /** Morpho Blue singleton. With `markets`, collateral accrues weight like a balance. */
+    morpho?: string;
+    /** Market ids whose collateralToken is `address`. Frozen into the proposal. */
+    markets?: string[];
+  },
   snapshot: string | number
 ): Promise<Record<string, number>> {
   if (!options.address) throw new Error('address parameter is required');
@@ -134,6 +168,23 @@ export async function strategy(
   const opening: Record<string, BigNumber> = Object.fromEntries(
     Object.entries(await multi.execute()).map(([a, b]) => [a, BigNumber.from(b as any)])
   );
+
+  /**
+   * Collateral counts toward the curve exactly like a balance, and its opening value
+   * is read at the same block for the same reason. A holder who borrowed against
+   * their tokens has not stopped holding them.
+   */
+  const markets = (options.markets ?? []).filter(Boolean);
+  const useCollateral = !!options.morpho && markets.length > 0;
+  if (useCollateral) {
+    const morpho = new Multicaller(network, provider, morphoAbi, { blockTag: startBlock });
+    wanted.forEach(a => markets.forEach(id => morpho.call(`${a}|${id}`, options.morpho as string, 'position', [id, a])));
+    for (const [key, pos] of Object.entries(await morpho.execute())) {
+      const a = key.split('|')[0];
+      const c = BigNumber.from((pos as any)?.collateral ?? (pos as any)?.[2] ?? 0);
+      if (!c.isZero()) opening[a] = (opening[a] ?? BigNumber.from(0)).add(c);
+    }
+  }
 
   const [startBlockData, headBlockData] = await Promise.all([
     provider.getBlock(startBlock),
@@ -228,6 +279,58 @@ export async function strategy(
     spans.push([from, to, false], [from, to, true]);
   }
   const pages = await mapLimit(spans, LOG_CONCURRENCY, ([from, to, inc]) => getLogs(from, to, inc));
+
+  /**
+   * Collateral movements, as deltas on the same timeline as the transfers.
+   *
+   * Filtered by market AND by holder in the topics, so the node returns only rows
+   * that change one of these curves. A liquidation is a subtraction with no matching
+   * withdrawal, which is the whole reason it is here.
+   */
+  const collateralDeltas: Array<{ block: number; logIndex: number; who: string; delta: BigNumber }> = [];
+  if (useCollateral) {
+    const holders = wanted.map(topicAddress);
+    const kinds: Array<[string, number, -1 | 1]> = [
+      [SUPPLY_COLLATERAL, 0, 1],
+      [WITHDRAW_COLLATERAL, 1, -1],
+      [LIQUIDATE, 2, -1]
+    ];
+    const jobs: Array<[number, number, string, number, -1 | 1]> = [];
+    for (let from = startBlock + 1; from <= endBlock; from += LOG_CHUNK) {
+      const to = Math.min(from + LOG_CHUNK - 1, endBlock);
+      for (const [topic, word, sign] of kinds) jobs.push([from, to, topic, word, sign]);
+    }
+    const got = await mapLimit(jobs, LOG_CONCURRENCY, async ([from, to, topic, word, sign]) => {
+      const rows = await (async function scan(a: number, b: number): Promise<any[]> {
+        try {
+          return await provider.getLogs({
+            address: options.morpho,
+            fromBlock: a,
+            toBlock: b,
+            topics: [topic, markets, null, holders]
+          });
+        } catch (e: any) {
+          const msg = String(e?.message ?? e);
+          if (!/range|too large|max=|exceeds limit|timed out|timeout/i.test(msg) || b <= a) throw e;
+          const mid = Math.floor((a + b) / 2);
+          const [x, y] = await Promise.all([scan(a, mid), scan(mid + 1, b)]);
+          return [...x, ...y];
+        }
+      })(from, to);
+      return rows.map(l => {
+        const d = String(l.data).slice(2);
+        // Supply: [assets]. Withdraw: [receiver, assets]. Liquidate: seizedAssets is word 2.
+        const raw = d.slice(word * 64, word * 64 + 64);
+        return {
+          block: Number(l.blockNumber),
+          logIndex: Number(l.logIndex),
+          who: fromTopic(l.topics[3]),
+          delta: BigNumber.from('0x' + (raw || '0')).mul(sign)
+        };
+      });
+    });
+    for (const page of got) for (const row of page) collateralDeltas.push(row);
+  }
   // Spread would blow the argument limit at ~65k entries, which a busy token over a
   // multi-day window reaches easily.
   const logs: any[] = [];
@@ -245,7 +348,12 @@ export async function strategy(
     .sort((a, b) => a.blockNumber - b.blockNumber || a.logIndex - b.logIndex);
 
   // One timestamp read per block that actually contains an event.
-  const blocks = [...new Set(events.map(e => e.blockNumber as number))];
+  const blocks = [
+    ...new Set([
+      ...events.map(e => e.blockNumber as number),
+      ...collateralDeltas.map(d => d.block)
+    ])
+  ];
   const stamps = new Map<number, number>();
   for (let i = 0; i < blocks.length; i += 20) {
     const page = blocks.slice(i, i + 20);
@@ -303,6 +411,30 @@ export async function strategy(
       balance.set(recipient, (balance.get(recipient) as BigNumber).add(value));
     }
   }
+  /**
+   * Collateral movements, applied on the same timeline as the transfers.
+   *
+   * Replayed after the transfer walk rather than interleaved with it because the two
+   * touch disjoint quantities — a transfer moves what is in the wallet, a collateral
+   * event moves what Morpho holds — so the order between them within a block cannot
+   * change either running total. What DOES matter is that each is applied at its own
+   * timestamp, which `advance` handles, and that both cut at `endTs`.
+   *
+   * The negative check is deliberately softer here than for transfers. A liquidation
+   * and a withdrawal can settle in the same block, and the seized amount is reported
+   * against the borrower while the withdrawal is reported against onBehalf; clamping
+   * at zero costs a holder nothing they are owed and refuses to invent weight, which
+   * is the right way round for a number somebody is about to vote with.
+   */
+  for (const d of collateralDeltas.sort((a, b) => a.block - b.block || a.logIndex - b.logIndex)) {
+    if (!index.has(d.who)) continue;
+    const at = stamps.get(d.block) ?? startTs;
+    if (at > endTs) continue;
+    advance(d.who, at);
+    const after = (balance.get(d.who) as BigNumber).add(d.delta);
+    balance.set(d.who, after.isNegative() ? BigNumber.from(0) : after);
+  }
+
   wanted.forEach(a => advance(a, endTs));
 
   return Object.fromEntries(

@@ -42,6 +42,24 @@
             "e.g. 345600 for four days"
           ],
           "minimum": 0
+        },
+        "morpho": {
+          "type": "string",
+          "title": "Morpho Blue singleton",
+          "description": "Optional. With markets, collateral posted in those markets accrues weight exactly like a wallet balance.",
+          "pattern": "^0x[a-fA-F0-9]{40}$",
+          "minLength": 42,
+          "maxLength": 42
+        },
+        "markets": {
+          "type": "array",
+          "title": "Morpho market ids",
+          "description": "Market ids whose collateralToken is this token. Frozen into the proposal so the ballot states which markets it counted.",
+          "items": {
+            "type": "string",
+            "pattern": "^0x[a-fA-F0-9]{64}$"
+          },
+          "maxItems": 64
         }
       },
       "required": [
