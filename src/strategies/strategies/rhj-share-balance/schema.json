@@ -9,14 +9,18 @@
         "symbol": {
           "type": "string",
           "title": "Symbol",
-          "examples": ["e.g. CRWD"],
+          "examples": [
+            "e.g. CRWD"
+          ],
           "maxLength": 16
         },
         "address": {
           "type": "string",
           "title": "Token contract address",
           "description": "Address of the Robinhood Assets Jersey (RHJ) stock token. Must expose uiMultiplier().",
-          "examples": ["e.g. 0xea72Ecca2d0f6bFA1394DBBCff85b52CD4233931"],
+          "examples": [
+            "e.g. 0xea72Ecca2d0f6bFA1394DBBCff85b52CD4233931"
+          ],
           "pattern": "^0x[a-fA-F0-9]{40}$",
           "minLength": 42,
           "maxLength": 42
@@ -25,11 +29,34 @@
           "type": "number",
           "title": "Decimals",
           "description": "Token decimals. Every RHJ token is 18. This only controls how the share count is formatted; the multiplier is always divided by 1e18.",
-          "examples": ["e.g. 18"],
+          "examples": [
+            "e.g. 18"
+          ],
           "minimum": 0
+        },
+        "morpho": {
+          "type": "string",
+          "title": "Morpho Blue singleton",
+          "description": "Optional. When set with markets, collateral posted in those markets counts toward the holder voting weight. Omit for the original balance-only behaviour.",
+          "pattern": "^0x[a-fA-F0-9]{40}$",
+          "minLength": 42,
+          "maxLength": 42
+        },
+        "markets": {
+          "type": "array",
+          "title": "Morpho market ids",
+          "description": "Market ids whose collateralToken is this stock token. Frozen into the proposal so a ballot states exactly which markets it counted.",
+          "items": {
+            "type": "string",
+            "pattern": "^0x[a-fA-F0-9]{64}$"
+          },
+          "maxItems": 64
         }
       },
-      "required": ["address", "decimals"],
+      "required": [
+        "address",
+        "decimals"
+      ],
       "additionalProperties": false
     }
   }

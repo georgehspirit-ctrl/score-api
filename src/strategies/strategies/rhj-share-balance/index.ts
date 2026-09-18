@@ -9,6 +9,20 @@ const abi = [
 ];
 
 /**
+ * Morpho Blue's position getter. `collateral` is the third return value.
+ *
+ * A holder who posts their stock as collateral no longer holds the token — the
+ * Morpho singleton does — so `balanceOf` returns zero and, until this existed,
+ * they could not vote at all. They had not sold anything and had not stopped
+ * owning the position; they had borrowed against it, which is the one thing a
+ * shareholder is most obviously still a shareholder while doing. Eighteen
+ * wallets were in exactly that state when this was written.
+ */
+const morphoAbi = [
+  'function position(bytes32 id, address user) external view returns (uint256 supplyShares, uint128 borrowShares, uint128 collateral)'
+];
+
+/**
  * The RHJ `Stock` implementation scales the UI/share value with a hard-coded
  * source-level constant:
  *
@@ -48,7 +62,15 @@ export async function strategy(
   network: string,
   provider: any,
   addresses: string[],
-  options: { address: string; decimals: number; symbol?: string },
+  options: {
+    address: string;
+    decimals: number;
+    symbol?: string;
+    /** Morpho Blue singleton. Omit and the strategy behaves exactly as before. */
+    morpho?: string;
+    /** Market ids whose collateralToken is `address`. Frozen into the proposal. */
+    markets?: string[];
+  },
   snapshot: string | number
 ): Promise<Record<string, number>> {
   if (!options.address) throw new Error('address parameter is required');
@@ -81,6 +103,8 @@ export async function strategy(
   const blockTag =
     typeof snapshot === 'number' ? snapshot : await provider.getBlockNumber();
 
+  const extraCollateral: Record<string, BigNumber> = {};
+
   const multi = new Multicaller(network, provider, abi, { blockTag });
 
   // Read once per call, not once per holder - the multiplier is a property of
@@ -89,6 +113,37 @@ export async function strategy(
   addresses.forEach(address =>
     multi.call(getAddress(address), options.address, 'balanceOf', [address])
   );
+
+  /**
+   * Collateral counts, and it is read at the SAME pinned block as everything else.
+   *
+   * The market list is passed in rather than discovered: Morpho Blue keeps no
+   * enumerable registry on-chain, so the alternative is scanning CreateMarket logs
+   * on every scoring call. Freezing the ids into the proposal is both cheaper and
+   * more honest — the ballot then states exactly which markets were counted, and a
+   * reader can check each one rather than trust a list that could change under them.
+   * The cost is that a market created after a ballot opens is not in it.
+   */
+  const markets = (options.markets ?? []).filter(Boolean);
+  const collateralKey = (a: string, id: string) => `${a}|${id}`;
+  if (options.morpho && markets.length) {
+    const morpho = new Multicaller(network, provider, morphoAbi, { blockTag });
+    addresses.forEach(address =>
+      markets.forEach(id =>
+        morpho.call(collateralKey(getAddress(address), id), options.morpho as string, 'position', [id, address])
+      )
+    );
+    const positions: Record<string, any> = await morpho.execute();
+    for (const [key, pos] of Object.entries(positions)) {
+      const [address] = key.split('|');
+      // A revert would have thrown; a market that simply has no position for this
+      // wallet returns zeros, which adds nothing and needs no special case.
+      const collateral = BigNumber.from(pos?.collateral ?? pos?.[2] ?? 0);
+      if (!collateral.isZero()) {
+        extraCollateral[address] = (extraCollateral[address] ?? BigNumber.from(0)).add(collateral);
+      }
+    }
+  }
 
   const result: Record<string, BigNumberish> = await multi.execute();
 
@@ -122,7 +177,15 @@ export async function strategy(
   return Object.fromEntries(
     Object.entries(balances).map(([address, balance]) => [
       address,
-      parseFloat(formatUnits(toShares(balance, uiMultiplier), options.decimals))
+      parseFloat(
+        formatUnits(
+          // Wallet balance plus anything of theirs Morpho is holding. Summed BEFORE
+          // the multiplier so the split/dividend restatement applies once, to the
+          // whole position, exactly as it would if the tokens had never moved.
+          toShares(BigNumber.from(balance).add(extraCollateral[address] ?? 0), uiMultiplier),
+          options.decimals
+        )
+      )
     ])
   );
 }
