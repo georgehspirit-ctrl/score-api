@@ -104,7 +104,23 @@ const LIQUIDATE =
  * Adaptation still happens, per request and discarded with it: bisection inside
  * getLogs is what actually handles an over-large span, and it needs no global.
  */
-const LOG_CHUNK_START = 200000;
+/**
+ * Wide spans, because the cost is per CALL, not per block.
+ *
+ * At 200,000 a four-day window is 14 spans and, with a filter each for sender and
+ * recipient, 28 eth_getLogs. Measured against the live endpoint, a wallet with 1,605
+ * matching logs and one with 17,874 both take 28 calls and 19.2s / 34.2s sequentially
+ * - the volume barely matters, the call count is everything. Raising concurrency to
+ * cover it made things WORSE, not better: 32-way tripped the endpoint's throttling and
+ * turned 200s into 500s.
+ *
+ * So ask fewer times. A million-block span puts the same 2.66M-block window in 3
+ * spans, 6 calls, one round. The topic filter means a span returns only the wallet's
+ * own transfers - 17,874 across the whole window is well inside a 10,000-per-response
+ * cap at this width for all but the most extreme holder - and the bisection below
+ * still narrows any span that does overflow, permanently for the rest of THIS request.
+ */
+const LOG_CHUNK_START = 1000000;
 const LOG_CHUNK_FLOOR = 500;
 /**
  * All of a window's spans in one round.
@@ -115,7 +131,7 @@ const LOG_CHUNK_FLOOR = 500;
  * endpoint, per-call latency - not log volume - is what dominates: a wallet with
  * 1,605 logs and one with 17,874 both take 28 calls, 19.2s and 34.2s sequentially.
  */
-const LOG_CONCURRENCY = 32;
+const LOG_CONCURRENCY = 16;
 
 /** Used only to wait out a throttle. */
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
