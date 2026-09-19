@@ -106,7 +106,19 @@ const LIQUIDATE =
  */
 const LOG_CHUNK_START = 200000;
 const LOG_CHUNK_FLOOR = 500;
-const LOG_CONCURRENCY = 16;
+/**
+ * All of a window's spans in one round.
+ *
+ * A four-day ballot is ~2.66M blocks, which at LOG_CHUNK_START is 14 spans and, with
+ * a filter each for sender and recipient, 28 eth_getLogs. At sixteen that is two
+ * rounds and the second round's latency is pure addition. Measured against the live
+ * endpoint, per-call latency - not log volume - is what dominates: a wallet with
+ * 1,605 logs and one with 17,874 both take 28 calls, 19.2s and 34.2s sequentially.
+ */
+const LOG_CONCURRENCY = 32;
+
+/** Used only to wait out a throttle. */
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
 /**
  * Block-timestamp reads: how many at once, and how many distinct blocks are still
@@ -291,6 +303,21 @@ export async function strategy(
          * plausible and is wrong, which is the failure mode worth fearing here.
          */
         const msg = String(e?.message ?? e);
+        /**
+         * Throttling is a pause, and it was fatal here.
+         *
+         * Raising concurrency makes a 429 likelier, and this branch only ever knew how
+         * to SPLIT - which does not help, because the span was never the problem - or
+         * to rethrow. A throttled scan therefore failed the whole weight read, and the
+         * caller cannot tell that from "you hold nothing". Wait and retry the same
+         * span instead; the split path below still handles spans that are genuinely
+         * too wide.
+         */
+        if (/rate limit|429|too many requests/i.test(msg)) {
+          if (attempt >= 3) throw e;
+          await sleep(Math.min(4000, 400 * 2 ** attempt) + Math.floor(Math.random() * 200));
+          continue;
+        }
         if (!/range|too large|max=|exceeds limit|timed out|timeout/i.test(msg)) throw e;
         chunk = Math.max(LOG_CHUNK_FLOOR, Math.floor(chunk / 2));
         const mid = Math.floor((fromBlock + toBlock) / 2);
