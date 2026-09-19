@@ -108,6 +108,14 @@ const LOG_CHUNK_START = 200000;
 const LOG_CHUNK_FLOOR = 500;
 const LOG_CONCURRENCY = 16;
 
+/**
+ * Block-timestamp reads: how many at once, and how many distinct blocks are still
+ * read exactly before the interpolated ladder takes over.
+ */
+const STAMP_CONCURRENCY = 100;
+const EXACT_STAMP_BLOCKS = 5000;
+const STAMP_ANCHORS = 256;
+
 /** Bounded fan-out. Keeps the scan inside one request without flooding the node. */
 async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
@@ -368,18 +376,80 @@ export async function strategy(
     })
     .sort((a, b) => a.blockNumber - b.blockNumber || a.logIndex - b.logIndex);
 
-  // One timestamp read per block that actually contains an event.
+  /**
+   * Timestamps for the blocks the events landed in.
+   *
+   * This was one getBlock per distinct block, twenty at a time, and the cost therefore
+   * scaled with how ACTIVE the wallet is rather than with the window. A holder with
+   * 12,866 transfers inside a four-day ballot needs 644 sequential rounds — about 64
+   * seconds — so it died on the edge's 60s cutoff every time, while a wallet with
+   * three transfers scored fine. Measured on the live scorer:
+   *
+   *   3 transfers       23.75s  ok
+   *   20 transfers       6.73s  ok
+   *   2,458 transfers   60.6s   dead
+   *   12,866 transfers  60.5s   dead
+   *
+   * The people it refused were exactly the ones who trade the token and are most
+   * likely to vote, and because a bloc weight is never cached, the sequencer rejects
+   * the vote outright rather than merely failing to display a number.
+   *
+   * Two changes. The page is wider, which keeps timestamps EXACT for all but the most
+   * extreme wallets; and past that, timestamps come from a fixed ladder of anchors and
+   * linear interpolation between them, which is bounded no matter how active the
+   * wallet is. The ladder depends only on the window — never on the wallet, the
+   * caller, or the time of day — so two people scoring the same ballot read the same
+   * anchors and recompute the same weight, which is the property this whole strategy
+   * exists to provide.
+   */
   const blocks = [
     ...new Set([
       ...events.map(e => e.blockNumber as number),
       ...collateralDeltas.map(d => d.block)
     ])
-  ];
+  ].sort((a, b) => a - b);
+
   const stamps = new Map<number, number>();
-  for (let i = 0; i < blocks.length; i += 20) {
-    const page = blocks.slice(i, i + 20);
-    const got = await Promise.all(page.map(b => provider.getBlock(b)));
-    page.forEach((b, j) => stamps.set(b, got[j].timestamp));
+  const readStamps = async (want: number[]) => {
+    for (let i = 0; i < want.length; i += STAMP_CONCURRENCY) {
+      const page = want.slice(i, i + STAMP_CONCURRENCY);
+      const got = await Promise.all(page.map(b => provider.getBlock(b)));
+      page.forEach((b, j) => stamps.set(b, got[j].timestamp));
+    }
+  };
+
+  if (blocks.length <= EXACT_STAMP_BLOCKS) {
+    await readStamps(blocks);
+  } else {
+    // A ladder across the window at a fixed stride, plus the two ends, so every event
+    // block is bracketed. Anchors are a function of [startBlock, endBlock] alone.
+    const stride = Math.max(1, Math.ceil((endBlock - startBlock) / STAMP_ANCHORS));
+    const anchors: number[] = [];
+    for (let b = startBlock; b < endBlock; b += stride) anchors.push(b);
+    anchors.push(endBlock);
+    await readStamps(anchors);
+
+    const ladder = anchors.slice().sort((a, b) => a - b);
+    const at = (block: number): number => {
+      if (stamps.has(block)) return stamps.get(block) as number;
+      // Bracket by binary search, then interpolate on block number. RHC produces
+      // blocks at a near-constant rate, so within one stride this is accurate to a
+      // few seconds against a window measured in days.
+      let lo = 0;
+      let hi = ladder.length - 1;
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (ladder[mid] <= block) lo = mid;
+        else hi = mid;
+      }
+      const a = ladder[lo];
+      const b = ladder[hi];
+      const ta = stamps.get(a) as number;
+      const tb = stamps.get(b) as number;
+      if (b === a) return ta;
+      return Math.round(ta + ((tb - ta) * (block - a)) / (b - a));
+    };
+    for (const b of blocks) stamps.set(b, at(b));
   }
 
   const balance = new Map<string, BigNumber>(wanted.map(a => [a, opening[a] ?? BigNumber.from(0)]));
