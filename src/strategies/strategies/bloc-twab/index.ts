@@ -88,7 +88,24 @@ const LIQUIDATE =
  * filters each. Sequentially that is some six hundred round trips and the request
  * dies long before it finishes; the ballot would simply fail to tally at close.
  */
-let LOG_CHUNK = 200000;
+/**
+ * The span a scan STARTS at. Not mutable state.
+ *
+ * This was a module-level `let` that the split path halved and nothing ever restored,
+ * so the first request to meet a busy span permanently shrank the chunk for every
+ * request the process served afterwards. Each halving costs twice the round trips:
+ * collapsed to the 500 floor, a four-day ballot needs about 9,500 eth_getLogs calls
+ * instead of 24, and every bloc weight times out at the edge — which is exactly what
+ * happened, and it read as "bloc-twab is broken" rather than "one earlier request
+ * poisoned a global". A scorer that degrades permanently from transient node pressure
+ * cannot be trusted to return the same weight twice, which is the one property this
+ * strategy exists to provide.
+ *
+ * Adaptation still happens, per request and discarded with it: bisection inside
+ * getLogs is what actually handles an over-large span, and it needs no global.
+ */
+const LOG_CHUNK_START = 200000;
+const LOG_CHUNK_FLOOR = 500;
 const LOG_CONCURRENCY = 16;
 
 /** Bounded fan-out. Keeps the scan inside one request without flooding the node. */
@@ -232,6 +249,10 @@ export async function strategy(
   // with ten voters reads ten wallets' history, not the whole chain's.
   const topics = wanted.map(topicAddress);
 
+  // Per-request, so a busy scan narrows its own spans and the next request starts
+  // fresh at the full width rather than inheriting this one's worst moment.
+  let chunk = LOG_CHUNK_START;
+
   const getLogs = async (fromBlock: number, toBlock: number, incoming: boolean): Promise<any[]> => {
     for (let attempt = 0; attempt < 4; attempt++) {
       try {
@@ -263,7 +284,7 @@ export async function strategy(
          */
         const msg = String(e?.message ?? e);
         if (!/range|too large|max=|exceeds limit|timed out|timeout/i.test(msg)) throw e;
-        LOG_CHUNK = Math.max(500, Math.floor(LOG_CHUNK / 2));
+        chunk = Math.max(LOG_CHUNK_FLOOR, Math.floor(chunk / 2));
         const mid = Math.floor((fromBlock + toBlock) / 2);
         if (mid <= fromBlock) throw e;
         const [a, b] = await Promise.all([getLogs(fromBlock, mid, incoming), getLogs(mid + 1, toBlock, incoming)]);
@@ -274,8 +295,8 @@ export async function strategy(
   };
 
   const spans: Array<[number, number, boolean]> = [];
-  for (let from = startBlock + 1; from <= endBlock; from += LOG_CHUNK) {
-    const to = Math.min(from + LOG_CHUNK - 1, endBlock);
+  for (let from = startBlock + 1; from <= endBlock; from += chunk) {
+    const to = Math.min(from + chunk - 1, endBlock);
     spans.push([from, to, false], [from, to, true]);
   }
   const pages = await mapLimit(spans, LOG_CONCURRENCY, ([from, to, inc]) => getLogs(from, to, inc));
@@ -296,8 +317,8 @@ export async function strategy(
       [LIQUIDATE, 2, -1]
     ];
     const jobs: Array<[number, number, string, number, -1 | 1]> = [];
-    for (let from = startBlock + 1; from <= endBlock; from += LOG_CHUNK) {
-      const to = Math.min(from + LOG_CHUNK - 1, endBlock);
+    for (let from = startBlock + 1; from <= endBlock; from += chunk) {
+      const to = Math.min(from + chunk - 1, endBlock);
       for (const [topic, word, sign] of kinds) jobs.push([from, to, topic, word, sign]);
     }
     const got = await mapLimit(jobs, LOG_CONCURRENCY, async ([from, to, topic, word, sign]) => {
