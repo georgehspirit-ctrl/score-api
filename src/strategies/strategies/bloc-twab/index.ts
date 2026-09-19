@@ -140,8 +140,20 @@ const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, m
  * Block-timestamp reads: how many at once, and how many distinct blocks are still
  * read exactly before the interpolated ladder takes over.
  */
-const STAMP_CONCURRENCY = 100;
-const EXACT_STAMP_BLOCKS = 5000;
+// Not higher. 32-way on the log scan tripped this endpoint's throttling and turned
+// answers into 500s; there is no reason to believe block reads are treated better.
+const STAMP_CONCURRENCY = 64;
+/**
+ * 5,000 was far too generous. A wallet with 4,999 event blocks still made 4,999
+ * getBlock calls - fifty rounds at the width below - which is most of a 60s budget
+ * before the log scan is even paid for. It explains why one wallet cleared on BONER,
+ * where it is quiet, and walled on MEME, where it is not: same code, same window,
+ * different number of event blocks.
+ *
+ * At 512 the exact path costs at most a handful of rounds, and everything above it
+ * takes the bounded ladder, whose cost does not move with the wallet at all.
+ */
+const EXACT_STAMP_BLOCKS = 512;
 const STAMP_ANCHORS = 256;
 
 /** Bounded fan-out. Keeps the scan inside one request without flooding the node. */
