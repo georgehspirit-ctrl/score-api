@@ -252,11 +252,12 @@ export async function strategy(
       // A bare CALL_EXCEPTION out of ethers says nothing about what is wrong. Name the two things
       // it is almost always: the wrong address, or a registry without the tier interface. The RHC
       // registry is immutable and predates tiers, so pointing a BSC ballot at it lands here.
+      const at = pinned ? `block ${blockTag}` : 'head';
+      const why = err?.reason ?? err?.message ?? String(err);
       throw new Error(
-        `tierOf(${options.address}) failed against registry ${options.registry} at ` +
-          `${pinned ? `block ${blockTag}` : 'head'}. Either that address is not an OnRecord ` +
-          `Registry, or it is one deployed before tiers existed (the Robinhood Chain registry ` +
-          `has no tierOf). Underlying: ${err?.reason ?? err?.message ?? String(err)}`
+        `tierOf(${options.address}) failed against registry ${options.registry} at ${at}. ` +
+          `Either that address is not an OnRecord Registry, or it is one deployed before tiers ` +
+          `existed (the Robinhood Chain registry has no tierOf). Underlying: ${why}`
       );
     }
 

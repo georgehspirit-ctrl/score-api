@@ -63,11 +63,24 @@ const options = { address: NVDAB, decimals: 18 };
 const beaconWord = (addr: string) =>
   `0x000000000000000000000000${addr.slice(2)}`;
 
+/**
+ * getCode is asked about two different things and must answer them differently, which a single
+ * blanket mock cannot do — and getting that wrong is what made the registry test look broken when
+ * the strategy was fine.
+ *
+ *   the TOKEN, at a block before it was deployed → empty. That is a real archive node's answer and
+ *     it is what the canary requires; bytecode there would mean the node is serving head.
+ *   the REGISTRY, at the record block           → bytecode. It exists, so the tier read stays
+ *     pinned to that block instead of falling back to head.
+ */
 function makeProvider(overrides: Record<string, any> = {}) {
   return {
     getBlockNumber: jest.fn().mockResolvedValue(HEAD),
-    // Empty code before deployment: a real archive node's answer, canary passes.
-    getCode: jest.fn().mockResolvedValue('0x'),
+    getCode: jest.fn((addr: string) =>
+      Promise.resolve(
+        addr?.toLowerCase() === REGISTRY.toLowerCase() ? '0x60806040' : '0x'
+      )
+    ),
     getStorageAt: jest.fn().mockResolvedValue(beaconWord(BSTOCKS_BEACON)),
     ...overrides
   };
@@ -91,10 +104,13 @@ const run = ({ provider, opts, rawOpts, block, holders }: RunArgs = {}) =>
     block ?? CHAIN.after.block
   );
 
-const expectPinnedTo = (provider: any, block: number) =>
+const expectReadAt = (provider: any, tag: number | string) =>
   expect(Multicaller).toHaveBeenCalledWith('56', provider, expect.any(Array), {
-    blockTag: block
+    blockTag: tag
   });
+
+const expectPinnedTo = (provider: any, block: number) =>
+  expectReadAt(provider, block);
 
 const resolveBalances = (uiMultiplier: string, balance = CHAIN.balanceOf) =>
   mockMulticaller.execute.mockResolvedValue({
@@ -375,9 +391,7 @@ describe('bstocks-share-balance strategy', () => {
         () => undefined
       );
 
-      expect(Multicaller).toHaveBeenCalledWith('56', provider, expect.any(Array), {
-        blockTag: 'latest'
-      });
+      expectReadAt(provider, 'latest');
     });
 
     it('names head, not the record block, when it fell back', async () => {
