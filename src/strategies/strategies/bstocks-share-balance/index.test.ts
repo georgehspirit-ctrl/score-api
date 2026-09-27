@@ -60,7 +60,8 @@ const HEAD = 124385050;
 
 const options = { address: NVDAB, decimals: 18 };
 
-const beaconWord = (addr: string) => `0x000000000000000000000000${addr.slice(2)}`;
+const beaconWord = (addr: string) =>
+  `0x000000000000000000000000${addr.slice(2)}`;
 
 function makeProvider(overrides: Record<string, any> = {}) {
   return {
