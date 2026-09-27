@@ -12,7 +12,9 @@ const abi = [
   'function uiMultiplier() external view returns (uint256)'
 ];
 
-const registryAbi = ['function tierOf(address token) external view returns (uint8)'];
+const registryAbi = [
+  'function tierOf(address token) external view returns (uint8)'
+];
 
 /**
  * bStocks share balance — BNB Smart Chain (56).
@@ -82,7 +84,8 @@ export const BSTOCKS_BEACON = '0x156d6dce9a4f6139a3406f1f021f1a4880de93a3';
 /** EIP-1967 beacon slot: keccak256("eip1967.proxy.beacon") - 1. Note BEACON, not the more
  *  familiar implementation slot — bStocks leave the implementation slot empty, so checking that
  *  one instead reads zero on a genuine token and would reject all of them. */
-const BEACON_SLOT = '0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133d50';
+const BEACON_SLOT =
+  '0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133d50';
 
 /**
  * ARCHIVE CANARY.
@@ -125,11 +128,12 @@ async function assertServesHistoricalState(
   }
 
   if (code && code !== '0x' && code !== '0x0') {
+    const bytes = (code.length - 2) / 2;
     throw new Error(
-      `RPC is not serving historical state: ${token} reports ${(code.length - 2) / 2} bytes of ` +
-        `code at block ${probe}, before it was deployed. Balances read "at block ${blockTag}" ` +
-        `would actually be head balances, and the tally would be wrong without failing. ` +
-        `Point this network at an archive node.`
+      `RPC is not serving historical state: ${token} reports ${bytes} bytes of code at block ` +
+        `${probe}, before it was deployed. Balances read "at block ${blockTag}" would actually ` +
+        `be head balances, and the tally would be wrong without failing. Point this network at ` +
+        `an archive node.`
     );
   }
 }
@@ -142,7 +146,7 @@ async function assertIssuerBeacon(
   expected: string
 ): Promise<void> {
   const raw = await provider.getStorageAt(token, BEACON_SLOT, blockTag);
-  const found = '0x' + raw.slice(-40);
+  const found = `0x${raw.slice(-40)}`;
   if (found.toLowerCase() !== expected.toLowerCase()) {
     throw new Error(
       `${token} is not a bStock: EIP-1967 beacon slot holds ${found} at block ${blockTag}, ` +
@@ -198,10 +202,11 @@ export async function strategy(
   const blockTag =
     typeof snapshot === 'number' ? snapshot : await provider.getBlockNumber();
 
-  await assertServesHistoricalState(provider, options.address, blockTag, options.deployBlock);
+  const { address, deployBlock } = options;
+  await assertServesHistoricalState(provider, address, blockTag, deployBlock);
 
   const beacon = options.beacon === undefined ? BSTOCKS_BEACON : options.beacon;
-  if (beacon) await assertIssuerBeacon(provider, options.address, blockTag, beacon);
+  if (beacon) await assertIssuerBeacon(provider, address, blockTag, beacon);
 
   // Registry check stands alone and runs before any balance is read, so a misconfigured ballot
   // fails with an error naming the tier instead of surfacing later as an odd-looking tally.
