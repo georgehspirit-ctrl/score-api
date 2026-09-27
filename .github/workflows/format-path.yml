@@ -1,0 +1,61 @@
+name: Format a path
+
+# Runs THIS repo's own eslint + prettier, at the versions yarn.lock pins, over one path and
+# commits the result.
+#
+# Why a workflow instead of just running it: the toolchain is only ever installed in CI here, and
+# formatting done with a different prettier version than the one lint.yml uses produces a diff
+# that still fails lint. Running it in the same environment that judges it is the only way to be
+# sure the fix is the fix.
+#
+# SCOPED ON PURPOSE. `path` defaults to nothing and must be given. `yarn lint --fix` across the
+# whole repo would rewrite every file with pre-existing lint debt — at the time of writing
+# src/methods.ts, bloc-twab and rhj-share-balance carry 89 errors between them on master — and
+# bury a small change in an unrelated reformat.
+on:
+  workflow_dispatch:
+    inputs:
+      path:
+        description: 'Path to format, e.g. src/strategies/strategies/bstocks-share-balance'
+        required: true
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - run: yarn install --frozen-lockfile
+
+      - name: eslint --fix
+        run: |
+          set -euo pipefail
+          # eslint carries the prettier plugin here, so one pass fixes both the formatting and the
+          # autofixable rules (prefer-template and friends). Report afterwards either way: --fix
+          # exits non-zero when something is left that it cannot fix, and that is worth seeing
+          # rather than swallowing.
+          npx eslint "${{ inputs.path }}" --ext .ts --fix || true
+          echo "--- remaining, if any ---"
+          npx eslint "${{ inputs.path }}" --ext .ts || true
+
+      - name: Commit if anything changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- "${{ inputs.path }}"; then
+            echo "already formatted, nothing to commit"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- "${{ inputs.path }}"
+          git commit -m "style: eslint --fix ${{ inputs.path }}"
+          git push origin HEAD:${{ github.ref_name }}
+          echo "pushed"
