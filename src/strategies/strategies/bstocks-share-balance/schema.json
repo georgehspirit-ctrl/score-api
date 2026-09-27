@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/definitions/Strategy",
+  "definitions": {
+    "Strategy": {
+      "title": "Strategy",
+      "type": "object",
+      "properties": {
+        "symbol": {
+          "type": "string",
+          "title": "Symbol",
+          "examples": ["e.g. NVDAB"],
+          "maxLength": 16
+        },
+        "address": {
+          "type": "string",
+          "title": "bStock token contract",
+          "description": "The bStock proxy on BNB Smart Chain. Register the PROXY, not the implementation. Do not identify a bStock by its symbol — impersonators with the same symbol exist on BSC.",
+          "examples": ["e.g. 0x02Fca66C1D1aFB4E2A7884261eB00F63598a7436"],
+          "pattern": "^0x[a-fA-F0-9]{40}$",
+          "minLength": 42,
+          "maxLength": 42
+        },
+        "decimals": {
+          "type": "number",
+          "title": "Decimals",
+          "description": "Token decimals. Every genuine bStock is 18. This only controls formatting; the multiplier is always divided by 1e18.",
+          "examples": ["e.g. 18"],
+          "minimum": 0
+        },
+        "registry": {
+          "type": "string",
+          "title": "OnRecord Registry",
+          "description": "Registry on this chain. When set, the token must hold the required tier at the record block or scoring fails. Strongly recommended — it is what ties voting weight to the on-chain whitelist.",
+          "pattern": "^0x[a-fA-F0-9]{40}$",
+          "minLength": 42,
+          "maxLength": 42
+        },
+        "requireTier": {
+          "type": "number",
+          "title": "Required registry tier",
+          "description": "1 = TIER_SHARE, an issuer-backed bStock (default). 2 = TIER_PRE_SHARE, a Four.meme 4Stock, which tracks a share without being one.",
+          "enum": [1, 2]
+        },
+        "beacon": {
+          "type": "string",
+          "title": "Expected EIP-1967 beacon",
+          "description": "Defaults to the bStocks beacon 0x156d6dce9a4f6139a3406f1f021f1a4880de93a3, which all genuine bStocks delegate to. Override only to test against a non-bStock.",
+          "pattern": "^0x[a-fA-F0-9]{40}$",
+          "minLength": 42,
+          "maxLength": 42
+        },
+        "deployBlock": {
+          "type": "number",
+          "title": "Token deployment block",
+          "description": "Optional. Narrows the archive canary, which otherwise probes block 1.",
+          "minimum": 0
+        }
+      },
+      "required": ["address", "decimals"],
+      "additionalProperties": false
+    }
+  }
+}
