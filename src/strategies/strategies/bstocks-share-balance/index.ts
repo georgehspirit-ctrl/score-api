@@ -212,15 +212,63 @@ export async function strategy(
   // fails with an error naming the tier instead of surfacing later as an odd-looking tally.
   if (options.registry) {
     const required = options.requireTier ?? 1;
-    const reg = new Multicaller(network, provider, registryAbi, { blockTag });
+
+    // WHICH BLOCK TO READ THE REGISTRY AT.
+    //
+    // Balances are pinned to the record block because a balance is a fact about that moment. A
+    // registry entry is not: it records whether a token is an issuer-backed share, which is a
+    // property of the token, not of the block. Pinning it anyway looks tidy and breaks a real case
+    // — a ballot whose record date predates the registry's own deployment reads an address with no
+    // code there and reverts. That is not hypothetical: the BSC registry was deployed at a block
+    // far above NVDAB's first dividend, so EVERY record date before the deployment, including
+    // every backtest, was unscoreable with a bare `tierOf` revert and nothing explaining it.
+    //
+    // So: read at the record block when the registry existed there, and fall back to head when it
+    // did not. The fallback cannot weaken anything the pinned read was protecting — a token that
+    // is not listed now is rejected either way — and it means a redeployed or migrated registry
+    // does not retroactively make historical ballots unscoreable.
+    let registryBlock: number | string = blockTag;
+    let pinned = true;
+    try {
+      const code = await provider.getCode(options.registry, blockTag);
+      if (!code || code === '0x' || code === '0x0') {
+        registryBlock = 'latest';
+        pinned = false;
+      }
+    } catch {
+      // Could not establish it either way. Leave it pinned; if the registry genuinely is not
+      // readable at this block the call below fails with the explicit message rather than here.
+    }
+
+    const reg = new Multicaller(network, provider, registryAbi, {
+      blockTag: registryBlock
+    });
     reg.call('tier', options.registry, 'tierOf', [options.address]);
-    const { tier } = await reg.execute();
+
+    let tier: BigNumberish;
+    try {
+      ({ tier } = await reg.execute());
+    } catch (err: any) {
+      // A bare CALL_EXCEPTION out of ethers says nothing about what is wrong. Name the two things
+      // it is almost always: the wrong address, or a registry without the tier interface. The RHC
+      // registry is immutable and predates tiers, so pointing a BSC ballot at it lands here.
+      throw new Error(
+        `tierOf(${options.address}) failed against registry ${options.registry} at ` +
+          `${pinned ? `block ${blockTag}` : 'head'}. Either that address is not an OnRecord ` +
+          `Registry, or it is one deployed before tiers existed (the Robinhood Chain registry ` +
+          `has no tierOf). Underlying: ${err?.reason ?? err?.message ?? String(err)}`
+      );
+    }
+
     const found = Number(tier);
     if (found !== required) {
+      const where = pinned
+        ? `at block ${blockTag}`
+        : `at head (the registry did not exist at block ${blockTag})`;
       throw new Error(
         found === 0
-          ? `${options.address} is not listed in the registry ${options.registry} at block ` +
-            `${blockTag}. Only a whitelisted token can carry voting weight.`
+          ? `${options.address} is not listed in the registry ${options.registry} ${where}. ` +
+            `Only a whitelisted token can carry voting weight.`
           : `${options.address} is listed at tier ${found} but this strategy scores tier ` +
             `${required}. Tier 2 is a Four.meme 4Stock — it tracks a share without being one, ` +
             `and must not be counted as share weight.`

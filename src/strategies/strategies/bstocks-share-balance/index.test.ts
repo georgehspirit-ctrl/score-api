@@ -344,7 +344,7 @@ describe('bstocks-share-balance strategy', () => {
       expect(queued).toEqual(['tierOf']);
     });
 
-    it('reads the tier at the record block', async () => {
+    it('reads the tier at the record block when the registry existed', async () => {
       mockMulticaller.execute.mockResolvedValue({ tier: 0 });
       const provider = makeProvider();
 
@@ -353,6 +353,60 @@ describe('bstocks-share-balance strategy', () => {
       );
 
       expectPinnedTo(provider, CHAIN.after.block);
+    });
+
+    /**
+     * The case that broke the first live end-to-end run.
+     *
+     * Balances are pinned to the record block because a balance is a fact about that
+     * moment. A registry entry is not — it records whether a token is an issuer-backed
+     * share, which is a property of the token. Pinning it anyway means a ballot whose
+     * record date predates the registry's own deployment reads an address with no code
+     * and reverts. The BSC registry was deployed far above NVDAB's first dividend, so
+     * every backtest failed on a bare tierOf CALL_EXCEPTION with nothing explaining it.
+     */
+    it('falls back to head when the registry did not exist yet', async () => {
+      mockMulticaller.execute.mockResolvedValue({ tier: 1 });
+      const provider = makeProvider({
+        getCode: jest.fn().mockResolvedValue('0x')
+      });
+
+      await run({ provider, opts: { registry: REGISTRY } }).catch(
+        () => undefined
+      );
+
+      expect(Multicaller).toHaveBeenCalledWith('56', provider, expect.any(Array), {
+        blockTag: 'latest'
+      });
+    });
+
+    it('names head, not the record block, when it fell back', async () => {
+      mockMulticaller.execute.mockResolvedValue({ tier: 0 });
+      const provider = makeProvider({
+        getCode: jest.fn().mockResolvedValue('0x')
+      });
+
+      await expect(
+        run({ provider, opts: { registry: REGISTRY } })
+      ).rejects.toThrow(/did not exist at block/);
+    });
+
+    /**
+     * A bare CALL_EXCEPTION out of ethers names nothing at all. The two causes that
+     * actually happen are a wrong address and a registry predating tiers — the RHC one is
+     * immutable and has no tierOf — so the message says both.
+     */
+    it('says which registry and why when tierOf reverts', async () => {
+      mockMulticaller.execute.mockRejectedValue(
+        new Error('call revert exception')
+      );
+
+      await expect(run({ opts: { registry: REGISTRY } })).rejects.toThrow(
+        /tierOf.*failed against registry/
+      );
+      await expect(run({ opts: { registry: REGISTRY } })).rejects.toThrow(
+        /deployed before tiers existed/
+      );
     });
   });
 });
