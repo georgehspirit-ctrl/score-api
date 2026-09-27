@@ -1,0 +1,45 @@
+[
+  {
+    "name": "NVDAB on BNB Smart Chain, one block AFTER its first dividend (uiMultiplier 1.000778)",
+    "strategy": {
+      "name": "bstocks-share-balance",
+      "params": {
+        "address": "0x02Fca66C1D1aFB4E2A7884261eB00F63598a7436",
+        "symbol": "NVDAB",
+        "decimals": 18,
+        "deployBlock": 102441275
+      }
+    },
+    "network": "56",
+    "addresses": [
+      "0x8FB4243b553aC29BA088aCf00B9B7dA24bD6690C",
+      "0xDD9d5164CcBc57bE377a964Fc064135b03D06177",
+      "0xdEbed59510885E29CE1D3DA0e5412d49D21f0354",
+      "0x18d52270d09AB842c87acd45977dCF64a82FA4ad",
+      "0xCC2bFfaeC373a6004bb6cCc8a62Cdd66061f7C6a",
+      "0x217e9ed14C797dF4597512D2245c00cA93e5a567",
+      "0x000000000000000000000000000000000000dEaD"
+    ],
+    "snapshot": 120970451
+  },
+  {
+    "name": "NVDAB one block BEFORE the same dividend — every score must be strictly lower",
+    "strategy": {
+      "name": "bstocks-share-balance",
+      "params": {
+        "address": "0x02Fca66C1D1aFB4E2A7884261eB00F63598a7436",
+        "symbol": "NVDAB",
+        "decimals": 18,
+        "deployBlock": 102441275
+      }
+    },
+    "network": "56",
+    "addresses": [
+      "0x8FB4243b553aC29BA088aCf00B9B7dA24bD6690C",
+      "0xDD9d5164CcBc57bE377a964Fc064135b03D06177",
+      "0xdEbed59510885E29CE1D3DA0e5412d49D21f0354",
+      "0x000000000000000000000000000000000000dEaD"
+    ],
+    "snapshot": 120970450
+  }
+]
