@@ -63,11 +63,24 @@ const options = { address: NVDAB, decimals: 18 };
 const beaconWord = (addr: string) =>
   `0x000000000000000000000000${addr.slice(2)}`;
 
+/**
+ * getCode is asked about two different things and must answer them differently, which a single
+ * blanket mock cannot do — and getting that wrong is what made the registry test look broken when
+ * the strategy was fine.
+ *
+ *   the TOKEN, at a block before it was deployed → empty. That is a real archive node's answer and
+ *     it is what the canary requires; bytecode there would mean the node is serving head.
+ *   the REGISTRY, at the record block           → bytecode. It exists, so the tier read stays
+ *     pinned to that block instead of falling back to head.
+ */
 function makeProvider(overrides: Record<string, any> = {}) {
   return {
     getBlockNumber: jest.fn().mockResolvedValue(HEAD),
-    // Empty code before deployment: a real archive node's answer, canary passes.
-    getCode: jest.fn().mockResolvedValue('0x'),
+    getCode: jest.fn((addr: string) =>
+      Promise.resolve(
+        addr?.toLowerCase() === REGISTRY.toLowerCase() ? '0x60806040' : '0x'
+      )
+    ),
     getStorageAt: jest.fn().mockResolvedValue(beaconWord(BSTOCKS_BEACON)),
     ...overrides
   };
@@ -91,10 +104,13 @@ const run = ({ provider, opts, rawOpts, block, holders }: RunArgs = {}) =>
     block ?? CHAIN.after.block
   );
 
-const expectPinnedTo = (provider: any, block: number) =>
+const expectReadAt = (provider: any, tag: number | string) =>
   expect(Multicaller).toHaveBeenCalledWith('56', provider, expect.any(Array), {
-    blockTag: block
+    blockTag: tag
   });
+
+const expectPinnedTo = (provider: any, block: number) =>
+  expectReadAt(provider, block);
 
 const resolveBalances = (uiMultiplier: string, balance = CHAIN.balanceOf) =>
   mockMulticaller.execute.mockResolvedValue({
@@ -344,7 +360,7 @@ describe('bstocks-share-balance strategy', () => {
       expect(queued).toEqual(['tierOf']);
     });
 
-    it('reads the tier at the record block', async () => {
+    it('reads the tier at the record block when the registry existed', async () => {
       mockMulticaller.execute.mockResolvedValue({ tier: 0 });
       const provider = makeProvider();
 
@@ -353,6 +369,58 @@ describe('bstocks-share-balance strategy', () => {
       );
 
       expectPinnedTo(provider, CHAIN.after.block);
+    });
+
+    /**
+     * The case that broke the first live end-to-end run.
+     *
+     * Balances are pinned to the record block because a balance is a fact about that
+     * moment. A registry entry is not — it records whether a token is an issuer-backed
+     * share, which is a property of the token. Pinning it anyway means a ballot whose
+     * record date predates the registry's own deployment reads an address with no code
+     * and reverts. The BSC registry was deployed far above NVDAB's first dividend, so
+     * every backtest failed on a bare tierOf CALL_EXCEPTION with nothing explaining it.
+     */
+    it('falls back to head when the registry did not exist yet', async () => {
+      mockMulticaller.execute.mockResolvedValue({ tier: 1 });
+      const provider = makeProvider({
+        getCode: jest.fn().mockResolvedValue('0x')
+      });
+
+      await run({ provider, opts: { registry: REGISTRY } }).catch(
+        () => undefined
+      );
+
+      expectReadAt(provider, 'latest');
+    });
+
+    it('names head, not the record block, when it fell back', async () => {
+      mockMulticaller.execute.mockResolvedValue({ tier: 0 });
+      const provider = makeProvider({
+        getCode: jest.fn().mockResolvedValue('0x')
+      });
+
+      await expect(
+        run({ provider, opts: { registry: REGISTRY } })
+      ).rejects.toThrow(/did not exist at block/);
+    });
+
+    /**
+     * A bare CALL_EXCEPTION out of ethers names nothing at all. The two causes that
+     * actually happen are a wrong address and a registry predating tiers — the RHC one is
+     * immutable and has no tierOf — so the message says both.
+     */
+    it('says which registry and why when tierOf reverts', async () => {
+      mockMulticaller.execute.mockRejectedValue(
+        new Error('call revert exception')
+      );
+
+      await expect(run({ opts: { registry: REGISTRY } })).rejects.toThrow(
+        /tierOf.*failed against registry/
+      );
+      await expect(run({ opts: { registry: REGISTRY } })).rejects.toThrow(
+        /deployed before tiers existed/
+      );
     });
   });
 });
