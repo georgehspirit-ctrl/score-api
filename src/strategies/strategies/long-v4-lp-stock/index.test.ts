@@ -38,7 +38,13 @@ const STRANGER = '0x000000000000000000000000000000000000dEaD';
  *     reports really does bracket the price the pool reports.
  */
 const CHAIN = {
-  poolKey: { currency0: WETH, currency1: OTHER, fee: 3000, tickSpacing: 60, hooks: `0x${'0'.repeat(40)}` },
+  poolKey: {
+    currency0: WETH,
+    currency1: OTHER,
+    fee: 3000,
+    tickSpacing: 60,
+    hooks: `0x${'0'.repeat(40)}`
+  },
   poolId: '0xdb2c20421239d46bb30a7a73029b7f9b7f166489bfb972057d33cbd7249413a5',
   /** The upper 200 bits of poolId, as the PositionManager packs them. */
   packedPoolId: '0xdb2c20421239d46bb30a7a73029b7f9b7f166489bfb972057d',
@@ -50,7 +56,8 @@ const CHAIN = {
 };
 
 /** The packed positionInfo word for position 1, verbatim from getPoolAndPositionInfo(1). */
-const PACKED_INFO = '0xdb2c20421239d46bb30a7a73029b7f9b7f166489bfb972057d0d89b4f2764c00';
+const PACKED_INFO =
+  '0xdb2c20421239d46bb30a7a73029b7f9b7f166489bfb972057d0d89b4f2764c00';
 
 /** slot0 as the chain packs it: sqrtPriceX96 in the low 160 bits, tick in the next 24. */
 const slot0Word = (sqrtPriceX96: string, tick: number): string => {
@@ -82,13 +89,17 @@ describe('poolId and state-slot derivation', () => {
   });
 
   it('unpacks slot0 into the live price and tick', () => {
-    const { sqrtPriceX96, tick } = decodeSlot0(slot0Word(CHAIN.sqrtPriceX96, CHAIN.tick));
+    const { sqrtPriceX96, tick } = decodeSlot0(
+      slot0Word(CHAIN.sqrtPriceX96, CHAIN.tick)
+    );
     expect(sqrtPriceX96.toString()).toBe(CHAIN.sqrtPriceX96);
     expect(tick).toBe(CHAIN.tick);
   });
 
   it('unpacks a NEGATIVE tick, which a two’s-complement slip would get wrong', () => {
-    const { tick } = decodeSlot0(slot0Word('79228162514264337593543950336', -47926));
+    const { tick } = decodeSlot0(
+      slot0Word('79228162514264337593543950336', -47926)
+    );
     expect(tick).toBe(-47926);
   });
 });
@@ -96,7 +107,9 @@ describe('poolId and state-slot derivation', () => {
 describe('TickMath matches the chain', () => {
   // The three values Uniswap itself publishes as constants.
   it('reproduces the reference ratios exactly', () => {
-    expect(getSqrtRatioAtTick(0).toString()).toBe('79228162514264337593543950336');
+    expect(getSqrtRatioAtTick(0).toString()).toBe(
+      '79228162514264337593543950336'
+    );
     expect(getSqrtRatioAtTick(-887272).toString()).toBe('4295128739');
     expect(getSqrtRatioAtTick(887272).toString()).toBe(
       '1461446703485210103287273052203988822378723970342'
@@ -148,14 +161,24 @@ describe('amountsForLiquidity', () => {
 
   /** Out-of-range prices must CLAMP, not extrapolate — otherwise a far price invents weight. */
   it('clamps rather than extrapolating outside the band', () => {
-    const farAbove = amountsForLiquidity(getSqrtRatioAtTick(500000), A, B, '1000000');
+    const farAbove = amountsForLiquidity(
+      getSqrtRatioAtTick(500000),
+      A,
+      B,
+      '1000000'
+    );
     const atTop = amountsForLiquidity(B, A, B, '1000000');
     expect(farAbove.amount0.toString()).toBe(atTop.amount0.toString());
     expect(farAbove.amount1.toString()).toBe(atTop.amount1.toString());
   });
 
   it('holds both sides inside the band', () => {
-    const { amount0, amount1 } = amountsForLiquidity(getSqrtRatioAtTick(0), A, B, '1000000');
+    const { amount0, amount1 } = amountsForLiquidity(
+      getSqrtRatioAtTick(0),
+      A,
+      B,
+      '1000000'
+    );
     expect(amount0.gt(0)).toBe(true);
     expect(amount1.gt(0)).toBe(true);
   });
@@ -224,11 +247,22 @@ describe('strategy', () => {
    * amounts differ by the pool price, which for a concentrated position is orders of magnitude.
    */
   it('credits currency0 or currency1 according to which is the stock', async () => {
-    mockMulticaller.execute.mockResolvedValueOnce(firstRound()).mockResolvedValueOnce(secondRound());
+    mockMulticaller.execute
+      .mockResolvedValueOnce(firstRound())
+      .mockResolvedValueOnce(secondRound());
     const asOther = await strategy('s', '4663', {}, [LP], base, 77_000_000);
 
-    mockMulticaller.execute.mockResolvedValueOnce(firstRound()).mockResolvedValueOnce(secondRound());
-    const asWeth = await strategy('s', '4663', {}, [LP], { ...base, stock: WETH }, 77_000_000);
+    mockMulticaller.execute
+      .mockResolvedValueOnce(firstRound())
+      .mockResolvedValueOnce(secondRound());
+    const asWeth = await strategy(
+      's',
+      '4663',
+      {},
+      [LP],
+      { ...base, stock: WETH },
+      77_000_000
+    );
 
     expect(asOther[LP]).toBeGreaterThan(0);
     expect(asWeth[LP]).toBeGreaterThan(0);
@@ -236,7 +270,9 @@ describe('strategy', () => {
   });
 
   it('ignores a pool that does not contain the stock at all', async () => {
-    mockMulticaller.execute.mockResolvedValueOnce(firstRound()).mockResolvedValueOnce(secondRound());
+    mockMulticaller.execute
+      .mockResolvedValueOnce(firstRound())
+      .mockResolvedValueOnce(secondRound());
     const res = await strategy(
       's',
       '4663',
@@ -259,14 +295,30 @@ describe('strategy', () => {
   });
 
   it('scores every voter, including those with no position, as a measured zero', async () => {
-    mockMulticaller.execute.mockResolvedValueOnce(firstRound()).mockResolvedValueOnce(secondRound());
-    const res = await strategy('s', '4663', {}, [LP, STRANGER], base, 77_000_000);
+    mockMulticaller.execute
+      .mockResolvedValueOnce(firstRound())
+      .mockResolvedValueOnce(secondRound());
+    const res = await strategy(
+      's',
+      '4663',
+      {},
+      [LP, STRANGER],
+      base,
+      77_000_000
+    );
     expect(res[STRANGER]).toBe(0);
     expect(res[LP]).toBeGreaterThan(0);
   });
 
   it('returns zeros without any chain read when no positions are given', async () => {
-    const res = await strategy('s', '4663', {}, [LP], { ...base, positions: [] }, 77_000_000);
+    const res = await strategy(
+      's',
+      '4663',
+      {},
+      [LP],
+      { ...base, positions: [] },
+      77_000_000
+    );
     expect(res).toEqual({ [LP]: 0 });
     expect(mockMulticaller.execute).not.toHaveBeenCalled();
   });
@@ -289,8 +341,12 @@ describe('strategy', () => {
   });
 
   it('resolves a string snapshot to a block before reading anything', async () => {
-    const provider = { getBlockNumber: jest.fn().mockResolvedValue(77_123_456) };
-    mockMulticaller.execute.mockResolvedValueOnce(firstRound()).mockResolvedValueOnce(secondRound());
+    const provider = {
+      getBlockNumber: jest.fn().mockResolvedValue(77_123_456)
+    };
+    mockMulticaller.execute
+      .mockResolvedValueOnce(firstRound())
+      .mockResolvedValueOnce(secondRound());
     await strategy('s', '4663', provider, [LP], base, 'latest');
     expect(provider.getBlockNumber).toHaveBeenCalled();
     // 'latest' must never reach the Multicaller: it pages concurrently and each page would
@@ -310,9 +366,18 @@ describe('strategy', () => {
         'liq:2': BigNumber.from(CHAIN.liquidity)
       })
       .mockResolvedValueOnce(secondRound());
-    const two = await strategy('s', '4663', {}, [LP], { ...base, positions: ['1', '2'] }, 77_000_000);
+    const two = await strategy(
+      's',
+      '4663',
+      {},
+      [LP],
+      { ...base, positions: ['1', '2'] },
+      77_000_000
+    );
 
-    mockMulticaller.execute.mockResolvedValueOnce(firstRound()).mockResolvedValueOnce(secondRound());
+    mockMulticaller.execute
+      .mockResolvedValueOnce(firstRound())
+      .mockResolvedValueOnce(secondRound());
     const one = await strategy('s', '4663', {}, [LP], base, 77_000_000);
 
     expect(two[LP]).toBeCloseTo(one[LP] * 2, 6);

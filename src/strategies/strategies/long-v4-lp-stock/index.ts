@@ -1,6 +1,6 @@
+import { defaultAbiCoder } from '@ethersproject/abi';
 import { getAddress } from '@ethersproject/address';
 import { BigNumber, BigNumberish } from '@ethersproject/bignumber';
-import { defaultAbiCoder } from '@ethersproject/abi';
 import { keccak256 } from '@ethersproject/keccak256';
 import { formatUnits } from '@ethersproject/units';
 import { Multicaller } from '../../utils';
@@ -79,7 +79,9 @@ const positionManagerAbi = [
  *
  * So the price is read from raw storage, and the slot is derived the way StateLibrary derives it.
  */
-const poolManagerAbi = ['function extsload(bytes32 slot) external view returns (bytes32)'];
+const poolManagerAbi = [
+  'function extsload(bytes32 slot) external view returns (bytes32)'
+];
 
 /**
  * `PoolManager._pools` lives at storage slot 6.
@@ -101,7 +103,10 @@ export function poolStateSlot(poolId: string): string {
 }
 
 /** Slot0 packs sqrtPriceX96 into the low 160 bits and the current tick into the next 24. */
-export function decodeSlot0(word: BigNumberish): { sqrtPriceX96: BigNumber; tick: number } {
+export function decodeSlot0(word: BigNumberish): {
+  sqrtPriceX96: BigNumber;
+  tick: number;
+} {
   const v = BigNumber.from(word);
   const sqrtPriceX96 = v.and(BigNumber.from(2).pow(160).sub(1));
   const raw = v.shr(160).and(0xffffff).toNumber();
@@ -124,12 +129,16 @@ const MAX_TICK = 887272;
  * 1.0001^(-2^i) and must not be "tidied".
  */
 export function getSqrtRatioAtTick(tick: number): BigNumber {
-  if (!Number.isInteger(tick)) throw new Error(`tick ${tick} is not an integer`);
-  if (tick < MIN_TICK || tick > MAX_TICK) throw new Error(`tick ${tick} is out of range`);
+  if (!Number.isInteger(tick))
+    throw new Error(`tick ${tick} is not an integer`);
+  if (tick < MIN_TICK || tick > MAX_TICK)
+    throw new Error(`tick ${tick} is out of range`);
 
   const absTick = Math.abs(tick);
   let ratio = BigNumber.from(
-    (absTick & 0x1) !== 0 ? '0xfffcb933bd6fad37aa2d162d1a594001' : '0x100000000000000000000000000000000'
+    (absTick & 0x1) !== 0
+      ? '0xfffcb933bd6fad37aa2d162d1a594001'
+      : '0x100000000000000000000000000000000'
   );
   const muls: [number, string][] = [
     [0x2, '0xfff97272373d413259a46990580e213a'],
@@ -191,9 +200,10 @@ export function amountsForLiquidity(
   if (p.gt(b)) p = b;
 
   // amount0 = L·2^96·(b − p) / (p·b)   — zero when p == b
-  const amount0 = p.isZero() || b.isZero()
-    ? BigNumber.from(0)
-    : L.mul(Q96).mul(b.sub(p)).div(b.mul(p));
+  const amount0 =
+    p.isZero() || b.isZero()
+      ? BigNumber.from(0)
+      : L.mul(Q96).mul(b.sub(p)).div(b.mul(p));
   // amount1 = L·(p − a) / 2^96        — zero when p == a
   const amount1 = L.mul(p.sub(a)).div(Q96);
   return { amount0, amount1 };
@@ -257,8 +267,10 @@ export async function strategy(
   );
   const stock = getAddress(options.stock);
 
-  const ids = (options.positions ?? []).map((id) => BigNumber.from(id).toString());
-  const voters = new Set(addresses.map((a) => getAddress(a)));
+  const ids = (options.positions ?? []).map(id =>
+    BigNumber.from(id).toString()
+  );
+  const voters = new Set(addresses.map(a => getAddress(a)));
   const result: Record<string, BigNumber> = {};
   for (const a of voters) result[a] = BigNumber.from(0);
   if (!ids.length) {
@@ -266,7 +278,9 @@ export async function strategy(
   }
 
   // Round 1: owner, pool key and liquidity for every position, all at the pinned block.
-  const pm = new Multicaller(network, provider, positionManagerAbi, { blockTag });
+  const pm = new Multicaller(network, provider, positionManagerAbi, {
+    blockTag
+  });
   for (const id of ids) {
     pm.call(`owner:${id}`, positionManager, 'ownerOf', [id]);
     pm.call(`info:${id}`, positionManager, 'getPoolAndPositionInfo', [id]);
@@ -329,9 +343,10 @@ export async function strategy(
   }
 
   // Round 2: the price of each distinct pool, once per pool rather than once per position.
-  const pools = [...new Set(live.map((l) => l.poolId))];
+  const pools = [...new Set(live.map(l => l.poolId))];
   const pmgr = new Multicaller(network, provider, poolManagerAbi, { blockTag });
-  for (const id of pools) pmgr.call(id, poolManager, 'extsload', [poolStateSlot(id)]);
+  for (const id of pools)
+    pmgr.call(id, poolManager, 'extsload', [poolStateSlot(id)]);
   const slots: Record<string, any> = await pmgr.execute();
 
   for (const l of live) {
