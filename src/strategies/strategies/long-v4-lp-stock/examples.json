@@ -4,13 +4,13 @@
     "strategy": {
       "name": "long-v4-lp-stock",
       "params": {
-        "stock": "0x42bcdf8d4116545d04dd5b76f48b614450f18b1b",
+        "stock": "0x42bcDF8d4116545d04dd5b76F48b614450f18B1B",
         "decimals": 18,
         "positions": ["1"]
       }
     },
     "network": "4663",
-    "addresses": ["0x9701fb0aDE1e269c8f64Ec0C7B3CFadb31a13a52"],
+    "addresses": ["0x9701fb0aDe1E269c8f64Ec0C7b3cfADB31A13A52"],
     "snapshot": 77000000
   }
 ]
