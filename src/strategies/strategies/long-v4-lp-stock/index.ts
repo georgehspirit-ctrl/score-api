@@ -28,7 +28,9 @@ import { Multicaller } from '../../utils';
  *      computed id is 0xdb2c…13a5 and the PositionManager's packed word carries
  *      0xdb2c20421239d46bb30a7a73029b7f9b7f166489bfb972057d, which is exactly its upper 200 bits.
  *      The packed word is NOT used as the id — it is truncated and would read the wrong pool.
- *   4. `getSlot0(poolId)` on the PoolManager gives sqrtPriceX96 at that block.
+ *   4. `extsload(keccak256(abi.encode(poolId, 6)))` on the PoolManager gives slot0 at that block,
+ *      with sqrtPriceX96 in its low 160 bits. NOT `getSlot0` — that is a helper in Uniswap's
+ *      off-chain StateLibrary and does not exist on the contract; calling it reverts.
  *   5. `getPositionLiquidity(tokenId)` gives L.
  *   6. The stock-token amount is the standard constant-product band integral, in exact integer
  *      arithmetic, with the three cases decided by where the price sits relative to the band:
