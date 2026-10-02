@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/definitions/Strategy",
+  "definitions": {
+    "Strategy": {
+      "title": "Strategy",
+      "type": "object",
+      "properties": {
+        "symbol": { "type": "string", "title": "Symbol", "examples": ["e.g. NVDA"], "maxLength": 16 },
+        "stock": {
+          "type": "string",
+          "title": "Stock token",
+          "description": "The Robinhood stock token whose ballot this is. Only this side of a pool is counted; the Long token side is not a share.",
+          "pattern": "^0x[a-fA-F0-9]{40}$",
+          "minLength": 42,
+          "maxLength": 42
+        },
+        "decimals": { "type": "number", "title": "Decimals", "description": "Stock token decimals. 18 on Robinhood Chain.", "minimum": 0 },
+        "positionManager": {
+          "type": "string",
+          "title": "Uniswap v4 PositionManager",
+          "description": "Defaults to 0x58daec3116aae6D93017bAAea7749052E8a04fA7 on Robinhood Chain.",
+          "pattern": "^0x[a-fA-F0-9]{40}$",
+          "minLength": 42,
+          "maxLength": 42
+        },
+        "poolManager": {
+          "type": "string",
+          "title": "Uniswap v4 PoolManager",
+          "description": "Defaults to 0x8366a39CC670B4001A1121B8F6A443A643e40951 on Robinhood Chain.",
+          "pattern": "^0x[a-fA-F0-9]{40}$",
+          "minLength": 42,
+          "maxLength": 42
+        },
+        "positions": {
+          "type": "array",
+          "title": "Position token ids",
+          "description": "The v4 position NFTs to count. Frozen into the proposal because the PositionManager is not enumerable — tokenOfOwnerByIndex reverts — so the ballot states exactly which positions it counted and a reader can check each one.",
+          "items": { "type": "string" },
+          "maxItems": 4096
+        }
+      },
+      "required": ["stock", "decimals", "positions"],
+      "additionalProperties": false
+    }
+  }
+}

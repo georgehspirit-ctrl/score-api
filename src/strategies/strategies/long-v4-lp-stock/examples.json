@@ -1,0 +1,16 @@
+[
+  {
+    "name": "Uniswap v4 position 1 on Robinhood Chain — the stock side credited to its LP",
+    "strategy": {
+      "name": "long-v4-lp-stock",
+      "params": {
+        "stock": "0x42bcdf8d4116545d04dd5b76f48b614450f18b1b",
+        "decimals": 18,
+        "positions": ["1"]
+      }
+    },
+    "network": "4663",
+    "addresses": ["0x9701fb0aDE1e269c8f64Ec0C7B3CFadb31a13a52"],
+    "snapshot": 77000000
+  }
+]
