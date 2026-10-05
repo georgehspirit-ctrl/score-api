@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/definitions/Strategy",
+  "definitions": {
+    "Strategy": {
+      "title": "Strategy",
+      "type": "object",
+      "properties": {
+        "symbol": { "type": "string", "title": "Symbol", "examples": ["e.g. NVDA"], "maxLength": 16 },
+        "stock": {
+          "type": "string",
+          "title": "Stock token",
+          "description": "The Robinhood stock token whose ballot this is. A Uniswap position counts only if one side of its pool IS this token, and only that side is credited.",
+          "pattern": "^0x[a-fA-F0-9]{40}$",
+          "minLength": 42,
+          "maxLength": 42
+        },
+        "decimals": { "type": "number", "title": "Decimals", "description": "Stock token decimals. 18 on Robinhood Chain.", "minimum": 0 },
+        "positionManager": {
+          "type": "string",
+          "title": "Uniswap v4 PositionManager",
+          "description": "Defaults to 0x58daec3116aae6D93017bAAea7749052E8a04fA7 on Robinhood Chain.",
+          "pattern": "^0x[a-fA-F0-9]{40}$",
+          "minLength": 42,
+          "maxLength": 42
+        },
+        "poolManager": {
+          "type": "string",
+          "title": "Uniswap v4 PoolManager",
+          "description": "Defaults to 0x8366a39CC670B4001A1121B8F6A443A643e40951 on Robinhood Chain.",
+          "pattern": "^0x[a-fA-F0-9]{40}$",
+          "minLength": 42,
+          "maxLength": 42
+        },
+        "rpcUrl": {
+          "type": "string",
+          "title": "Discovery RPC endpoint (optional)",
+          "description": "Endpoint the Transfer-log discovery scan reads from. Defaults to https://rpc.mainnet.chain.robinhood.com, which errors at its block-span cap rather than silently truncating a wide eth_getLogs — unlike the Tenderly gateway, which undercounts without erroring. Override only with another endpoint that errors rather than truncates."
+        }
+      },
+      "required": ["stock", "decimals"],
+      "additionalProperties": false
+    }
+  }
+}

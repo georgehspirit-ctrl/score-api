@@ -12,6 +12,7 @@
     "dev": "nodemon src/index.ts",
     "start": "node build/src/index.js",
     "test:unit": "jest --config=jest.config.unit.ts",
+    "test:lp": "jest --config=jest.config.unit.ts --collectCoverage=false src/strategies/strategies/uniswap-lp-stock",
     "test:unit:watch": "yarn test:unit --watch",
     "test:strategy": "jest -i test/strategies/unit/strategy.test.ts --testTimeout=300000 --collectCoverage=false --config=jest.config.unit.ts",
     "test:strategy:watch": "yarn test:strategy --watch",

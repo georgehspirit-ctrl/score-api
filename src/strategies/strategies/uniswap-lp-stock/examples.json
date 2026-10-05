@@ -1,0 +1,16 @@
+[
+  {
+    "name": "Uniswap v4 LP on Robinhood Chain — the stock side, positions auto-discovered from the chain",
+    "strategy": {
+      "name": "uniswap-lp-stock",
+      "params": {
+        "symbol": "STOCK",
+        "stock": "0x42bcDF8d4116545d04dd5b76F48b614450f18B1B",
+        "decimals": 18
+      }
+    },
+    "network": "4663",
+    "addresses": ["0x9701fb0aDe1E269c8f64Ec0C7b3cfADB31A13A52"],
+    "snapshot": 77000000
+  }
+]

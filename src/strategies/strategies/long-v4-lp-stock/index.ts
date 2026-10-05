@@ -233,6 +233,21 @@ const int24 = (v: BigNumber): number => {
   return raw >= 0x800000 ? raw - 0x1000000 : raw;
 };
 
+/**
+ * tickLower and tickUpper out of the PositionManager's packed PositionInfo word.
+ *
+ * Bits 8..31 are tickLower, bits 32..55 tickUpper, each a 24-bit two's-complement field. Exported
+ * so uniswap-lp-stock reuses the exact same decode rather than re-deriving the bit layout — the
+ * ticks feed `getSqrtRatioAtTick`, where being one bit wrong moves whole tokens of weight.
+ */
+export function decodeTicks(info: BigNumberish): {
+  tickLower: number;
+  tickUpper: number;
+} {
+  const packed = BigNumber.from(info);
+  return { tickLower: int24(packed.shr(8)), tickUpper: int24(packed.shr(32)) };
+}
+
 export async function strategy(
   space: string,
   network: string,
