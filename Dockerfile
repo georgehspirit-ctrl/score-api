@@ -17,6 +17,13 @@ COPY . .
 # deploy. Build once here and run the compiled output instead.
 RUN yarn build
 
+# Gate the deploy on the LP strategy's unit tests. They are fully mocked and
+# deterministic (no network, no env), so a failure here is a real regression, not
+# flake — and a failed build leaves the previous deploy serving. This is where the
+# project's "tests run in the build, not on a laptop and not in Actions" rule lives;
+# railway.json's buildCommand is ignored because this Dockerfile drives the build.
+RUN yarn test:lp
+
 EXPOSE 3003
 
 CMD ["node", "build/src/index.js"]
